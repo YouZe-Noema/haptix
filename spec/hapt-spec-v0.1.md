@@ -139,3 +139,15 @@ Format version follows semver. Breaking changes increment major version. v0.x is
 ### Reading List
 
 See `docs/reading-list.md` for ongoing literature review tracking datasets, methods, and potential collaborators.
+
+### Future Directions (Design Notes)
+
+**Temporal modes (v0.2):** Current v0.1 uses global interaction parameters — one speed, one force for the entire recording. Real tactile exploration has phases (approach → contact → slide → release) with varying parameters. v0.2 should introduce:
+
+- `mode`: `"snapshot"` (T small, constant params) vs `"trajectory"` (T large, varying params)
+- `temporal_segments`: per-phase interaction metadata with frame ranges
+- `trajectory`: optional 6-DOF sensor pose synchronized with tactile frames
+
+This maps to the two core application domains: snapshot for material classification/grasp assessment, trajectory for teleoperation and in-hand manipulation.
+
+Design principle: introduce temporal complexity only when real data sources demand it. No speculation-driven engineering.
