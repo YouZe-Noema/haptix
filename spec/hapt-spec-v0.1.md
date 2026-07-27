@@ -126,3 +126,16 @@ The `is_lossy` flag is critical — downstream consumers must know whether they 
 ## Versioning
 
 Format version follows semver. Breaking changes increment major version. v0.x is pre-stable.
+
+## References
+
+### Foundational
+
+1. **Luo, S., Bimbo, J., Dahiya, R., & Liu, H. (2017).** "Robotic tactile perception of object properties: A review." *Mechatronics*, 48, 54-67.
+   - Comprehensive survey of tactile sensing technologies, material/shape recognition, and sensor fusion.
+   - Establishes the three-tier sensor taxonomy (single-point / high-res array / large-area skin) that maps to `.hapt` modality types.
+   - Key insight: "interpretation of tactile sensors readings has not yet been fully taken into consideration" — the gap haptix addresses still exists 8+ years later.
+
+### Reading List
+
+See `docs/reading-list.md` for ongoing literature review tracking datasets, methods, and potential collaborators.

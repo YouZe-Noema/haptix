@@ -20,6 +20,30 @@ _DATASET_KEYS = {
 }
 
 _CATALOG = {
+    "coro_tactile": {
+        "name": "coro_tactile",
+        "url": (
+            "https://os5.mycloud.com/action/share/dc475405-9198-4860-85c9-aeb3d8f79a09"
+        ),
+        "description": (
+            "Lab-CORO Tactile Dataset: Real and simulated capacitive tactile sensor "
+            "data for robotic grasping. Includes 46,200 samples (15,400 real, "
+            "15,400 Abaqus FEA simulation, 15,400 Isaac Gym simulation) from "
+            "49 indenters and 12 grasped objects. Modality: dynamic pressure arrays "
+            "(57-taxel capacitive sensor)."
+        ),
+        "size_bytes": 2_000_000_000,  # ~2 GB estimated
+        "sensor_type": "CoroCapacitive",
+        "modality": "dynamic",
+        "num_samples": 46_200,
+        "citation": (
+            "De la Cruz-S\\u00e1nchez, B. A., Kwiatkowski, J., & Roberge, J-P. "
+            "'Tactile Contact Patterns for Robotic Grasping: A Dataset of Real "
+            "and Simulated Data' (2024)."
+        ),
+        "license": "Research use only",
+        "homepage": "https://github.com/Lab-CORO/TactileDataset",
+    },
     "touch_and_go": {
         "name": "touch_and_go",
         "url": (

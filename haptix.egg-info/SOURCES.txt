@@ -12,8 +12,10 @@ haptix/datasets/__init__.py
 haptix/datasets/catalog.py
 haptix/datasets/download.py
 haptix/sensors/__init__.py
+haptix/sensors/coro.py
 haptix/sensors/digit.py
 haptix/sensors/gelsight.py
+tests/test_coro.py
 tests/test_datasets.py
 tests/test_edge_cases.py
 tests/test_gelsight.py
