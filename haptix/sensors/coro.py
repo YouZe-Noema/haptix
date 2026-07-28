@@ -29,10 +29,13 @@ import pandas as pd
 from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
 from haptix.sensors import register
 
-# Expected number of taxels in the capacitive sensor array
+# Expected number of taxels in the capacitive sensor array.
+# Auto-detected from data; 57 is the default for legacy format compatibility.
 _NUM_TAXELS = 57
 
-# CSV file patterns expected in a Lab-CORO dataset directory
+# CSV file patterns expected in a Lab-CORO dataset directory.
+# Actual filenames use version suffixes (e.g., Flat_Real_Abaqus_V1.csv).
+# These patterns match the base names; the adapter finds CSV files flexibly.
 _CSV_PATTERNS = [
     "Flat_Real_Abaqus.csv",
     "Flat_Simulation_Abaqus.csv",
@@ -43,16 +46,19 @@ _CSV_PATTERNS = [
 # Default framerate (30 Hz is standard for capacitive sensor arrays)
 _DEFAULT_FRAMERATE_HZ = 30.0
 
-# Source types: which CSV to load
+# Source types: which CSV file pattern to load.
+# The adapter does flexible matching — it checks if the CSV filename
+# contains the source string (case-insensitive), so "flat_real"
+# matches both "Flat_Real_Abaqus_V1.csv" and "Flat_Real_Abaqus.csv".
 _SOURCE_MAP = {
-    "flat_real": "Flat_Real_Abaqus.csv",
-    "flat_simulation": "Flat_Simulation_Abaqus.csv",
-    "curved_real": "Curved_Real_Abaqus.csv",
-    "curved_simulation": "Curved_Simulation_Abaqus.csv",
+    "flat_real": "Flat_Real_Abaqus",
+    "flat_simulation": "Flat_Simulation_Abaqus",
+    "curved_real": "Curved_Real_Abaqus",
+    "curved_simulation": "Curved_Simulation_Abaqus",
     # Aliases for convenience
-    "real": "Flat_Real_Abaqus.csv",
-    "simulation": "Flat_Simulation_Abaqus.csv",
-    "default": "Flat_Real_Abaqus.csv",
+    "real": "Flat_Real_Abaqus",
+    "simulation": "Flat_Simulation_Abaqus",
+    "default": "Flat_Real_Abaqus",
 }
 
 
@@ -130,15 +136,21 @@ class CoroCapacitiveAdapter:
         """
         import pandas as pd
 
-        csv_filename = _SOURCE_MAP.get(source, source)
-        csv_path = path / csv_filename
+        csv_pattern = _SOURCE_MAP.get(source, source)
 
-        if not csv_path.exists():
-            # Fall back: find any CSV if the named one doesn't exist
-            csvs = sorted(path.glob("*.csv"))
+        # Flexible filename matching: find CSV containing the pattern
+        csvs = sorted(path.glob("*.csv"))
+        csv_path = None
+        for csv_file in csvs:
+            if csv_pattern.lower() in csv_file.name.lower():
+                csv_path = csv_file
+                break
+
+        if csv_path is None:
+            # Fall back: pick the first CSV if no pattern match
             if not csvs:
                 raise FileNotFoundError(
-                    f"No CSV data files found in {path}. " f"Looking for: {csv_filename}"
+                    f"No CSV data files found in {path}. Looking for pattern: {csv_pattern}"
                 )
             csv_path = csvs[0]
 
@@ -174,16 +186,19 @@ class CoroCapacitiveAdapter:
 
         Detection logic:
         1. If a 'Path' column exists, group rows by Path value.
-        2. For each group, extract the taxel data:
-           a. Drop the 'Path' column
-           b. If the group has exactly _NUM_TAXELS rows, reshape
-              columns to a 1D vector (or take the column mean).
-           c. If the group has one row with _NUM_TAXELS+1 columns,
-              treat the row directly as the taxel vector.
-        3. If no 'Path' column exists, assume each row is one sample
-           and the columns are taxel values. Expect _NUM_TAXELS data
-           columns.
+        2. For each group, extract the taxel data.
+        3. If no 'Path' column exists, treat each row as one frame
+           and each data column as a taxel value.
         """
+
+        # Helper: detect columns that are all-zero (likely markers/frame indices)
+        def _is_data_column(col_values):
+            """Return True if column appears to contain real sensor data."""
+            unique = col_values.unique()
+            if len(unique) <= 1:
+                return False  # Constant column — likely marker
+            return True
+
         # Remove non-data columns
         data_cols = [c for c in df.columns if c != "Path"]
 
@@ -199,53 +214,43 @@ class CoroCapacitiveAdapter:
                 # Data columns are already numeric from read_csv
                 group_data = group_data.infer_objects(copy=False)
 
-                if group_data.shape[0] == _NUM_TAXELS:
-                    # Standard format: 57 rows, one per taxel.
-                    # Use column mean (or first column if only one) per row
-                    # to get a 57-element vector
-                    if group_data.shape[1] == 1:
-                        # Single data column: each row is a taxel reading
-                        frame = group_data.values.flatten().astype(np.float32)
-                    else:
-                        # Multiple columns: take the mean of all numeric
-                        # columns per row
-                        frame = group_data.mean(axis=1).values.astype(np.float32)
-                elif group_data.shape[0] == 1 and group_data.shape[1] >= _NUM_TAXELS:
+                if group_data.shape[0] == 1 and group_data.shape[1] >= 2:
                     # Single-row format: all taxels in columns
-                    frame = group_data.values[0, :_NUM_TAXELS].astype(np.float32)
+                    frame = group_data.values[0, :].astype(np.float32)
+                elif group_data.shape[1] == 1:
+                    # Single data column: each row is a taxel reading
+                    frame = group_data.values.flatten().astype(np.float32)
                 else:
-                    # Fallback: use all values, padded/truncated to _NUM_TAXELS
-                    flat = group_data.values.flatten()
-                    if len(flat) >= _NUM_TAXELS:
-                        frame = flat[:_NUM_TAXELS].astype(np.float32)
-                    else:
-                        frame = np.pad(
-                            flat.astype(np.float32),
-                            (0, _NUM_TAXELS - len(flat)),
-                            mode="constant",
-                        )
+                    # Multiple rows and columns: take mean across columns per row
+                    frame = group_data.mean(axis=1).values.astype(np.float32)
 
                 frames.append(frame)
 
             if not frames:
-                # Fallback: use the entire dataframe as one frame
-                flat = df[data_cols].values.flatten()
                 return np.zeros((1, _NUM_TAXELS), dtype=np.float32)
 
-            return np.stack(frames, axis=0)
+            # Ensure all frames have the same length
+            target_len = max(len(f) for f in frames)
+            aligned = []
+            for f in frames:
+                if len(f) < target_len:
+                    f = np.pad(f, (0, target_len - len(f)), mode="constant")
+                elif len(f) > target_len:
+                    f = f[:target_len]
+                aligned.append(f)
+            return np.stack(aligned, axis=0)
 
         else:
-            # No Path column: each row is one sample, columns are taxels
-            numeric_df = df[data_cols].apply(pd.to_numeric, errors="coerce")
+            # No Path column: each row is one frame, columns are taxel values.
+            # Convert all columns to numeric, dropping non-convertible ones.
+            numeric_data = df[data_cols].apply(pd.to_numeric, errors="coerce")
+            numeric_data = numeric_data.dropna(axis=1, how="all")
 
-            if numeric_df.shape[1] >= _NUM_TAXELS:
-                return numeric_df.values[:, :_NUM_TAXELS].astype(np.float32)
-            elif numeric_df.shape[0] >= _NUM_TAXELS:
-                # Treat rows as taxels, take first _NUM_TAXELS rows
-                return numeric_df.values[:_NUM_TAXELS, :].astype(np.float32).T
-            else:
-                # Fallback: flatten all values
-                flat = numeric_df.values.flatten().astype(np.float32)
-                if len(flat) >= _NUM_TAXELS:
-                    return flat[:_NUM_TAXELS].reshape(1, -1)
-                return np.pad(flat, (0, _NUM_TAXELS - len(flat))).reshape(1, -1)
+            # Filter out constant (marker) columns
+            useful_cols = [c for c in numeric_data.columns if _is_data_column(numeric_data[c])]
+            if not useful_cols:
+                # Fallback: use all numeric columns
+                useful_cols = list(numeric_data.columns)
+
+            result = numeric_data[useful_cols].values.astype(np.float32)
+            return result
