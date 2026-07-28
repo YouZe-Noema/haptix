@@ -8,15 +8,13 @@ Provides:
   - Cache inspection and cleanup
 """
 
-from pathlib import Path
-import hashlib
 import os
-import sys
 import shutil
 import tarfile
 import zipfile
+from pathlib import Path
 
-from haptix.datasets.catalog import get_dataset_info, list_datasets
+from haptix.datasets.catalog import get_dataset_info
 
 
 # Default cache location — override by setting HAPTIX_CACHE_DIR env var
@@ -34,20 +32,20 @@ DEFAULT_CACHE_DIR = _default_cache_dir()
 # HTTP download helpers
 # ---------------------------------------------------------------------------
 
+
 def _http_download(url: str, dest: Path) -> None:
     """Download *url* to *dest* with a progress bar.
 
     Uses ``urllib`` from stdlib so no extra dependencies are required.
     Falls back gracefully if ``tqdm`` is not installed.
     """
-    import urllib.request
-    import urllib.error
 
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         # Use tqdm for a progress bar if available
         import tqdm  # noqa: F401
+
         _download_with_progress(url, dest)
     except ImportError:
         _download_simple(url, dest)
@@ -65,30 +63,34 @@ def _download_simple(url: str, dest: Path) -> None:
 def _download_with_progress(url: str, dest: Path) -> None:
     """Download with a tqdm progress bar."""
     import urllib.request
+
     import tqdm
 
     response = urllib.request.urlopen(url)
     total = int(response.headers.get("Content-Length", 0))
 
     block_size = 1024 * 64  # 64 KB
-    with open(dest, "wb") as f:
-        with tqdm.tqdm(
+    with (
+        open(dest, "wb") as f,
+        tqdm.tqdm(
             total=total,
             unit="B",
             unit_scale=True,
             desc=dest.name,
-        ) as pbar:
-            while True:
-                chunk = response.read(block_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                pbar.update(len(chunk))
+        ) as pbar,
+    ):
+        while True:
+            chunk = response.read(block_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            pbar.update(len(chunk))
 
 
 # ---------------------------------------------------------------------------
 # Archive extraction
 # ---------------------------------------------------------------------------
+
 
 def _maybe_extract(archive_path: Path, extract_to: Path) -> Path:
     """Extract *archive_path* into *extract_to* if it's an archive.
@@ -123,6 +125,7 @@ def _maybe_extract(archive_path: Path, extract_to: Path) -> Path:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def download_dataset(
     name: str,
@@ -198,9 +201,7 @@ def cached_datasets(cache_dir: str | Path | None = None) -> list[str]:
     cache_root = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
     if not cache_root.exists():
         return []
-    return sorted(
-        p.name for p in cache_root.iterdir() if p.is_dir() and not p.name.startswith(".")
-    )
+    return sorted(p.name for p in cache_root.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
 def cache_info(cache_dir: str | Path | None = None) -> dict:

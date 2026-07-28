@@ -22,9 +22,11 @@ References
 """
 
 from pathlib import Path
-import numpy as np
 
-from haptix.core import HaptData, RawData, SensorMeta, InteractionMeta, Labels
+import numpy as np
+import pandas as pd
+
+from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
 from haptix.sensors import register
 
 # Expected number of taxels in the capacitive sensor array
@@ -136,8 +138,7 @@ class CoroCapacitiveAdapter:
             csvs = sorted(path.glob("*.csv"))
             if not csvs:
                 raise FileNotFoundError(
-                    f"No CSV data files found in {path}. "
-                    f"Looking for: {csv_filename}"
+                    f"No CSV data files found in {path}. " f"Looking for: {csv_filename}"
                 )
             csv_path = csvs[0]
 

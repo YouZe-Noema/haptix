@@ -22,19 +22,19 @@ Usage::
     >>> haptix.clear_cache()  # removes all cached data
 """
 
-from haptix.datasets.catalog import list_datasets, get_dataset_info
+from haptix.datasets.catalog import get_dataset_info, list_datasets
 from haptix.datasets.download import (
-    download_dataset,
-    cached_datasets,
     cache_info,
+    cached_datasets,
     clear_cache,
+    download_dataset,
 )
 
 __all__ = [
-    "list_datasets",
-    "get_dataset_info",
-    "download_dataset",
-    "cached_datasets",
     "cache_info",
+    "cached_datasets",
     "clear_cache",
+    "download_dataset",
+    "get_dataset_info",
+    "list_datasets",
 ]

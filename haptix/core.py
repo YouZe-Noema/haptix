@@ -5,12 +5,14 @@ HaptData is the in-memory representation of a .hapt file.
 It enforces the invariant that raw data is never modified.
 """
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional, Any, Literal
 import hashlib
-import json
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
+
 import numpy as np
+
+if TYPE_CHECKING:
+    import torch
 
 # Lazy torch import — torch is an optional dependency
 try:
@@ -25,9 +27,10 @@ Modality = Literal["imaging", "dynamic", "force", "multimodal"]
 @dataclass(frozen=True)
 class SensorMeta:
     """Immutable sensor metadata."""
+
     type: str
-    serial: Optional[str] = None
-    calibration_date: Optional[str] = None
+    serial: str | None = None
+    calibration_date: str | None = None
     calibration_params: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -54,17 +57,23 @@ class SensorMeta:
 class InteractionMeta:
     """Immutable interaction parameters. This is the MANDATORY metadata that
     differentiates .hapt from generic container formats."""
+
     type: str  # "sliding", "pressing", "grasping", "static"
-    speed_mm_s: Optional[float] = None
-    normal_force_N: Optional[float] = None
-    approach_angle_deg: Optional[float] = None
-    temperature_C: Optional[float] = None
-    humidity_pct: Optional[float] = None
+    speed_mm_s: float | None = None
+    normal_force_N: float | None = None
+    approach_angle_deg: float | None = None
+    temperature_C: float | None = None
+    humidity_pct: float | None = None
 
     def to_dict(self) -> dict:
         d = {"type": self.type}
-        for key in ["speed_mm_s", "normal_force_N", "approach_angle_deg",
-                     "temperature_C", "humidity_pct"]:
+        for key in [
+            "speed_mm_s",
+            "normal_force_N",
+            "approach_angle_deg",
+            "temperature_C",
+            "humidity_pct",
+        ]:
             v = getattr(self, key)
             if v is not None:
                 d[key] = v
@@ -85,21 +94,28 @@ class InteractionMeta:
 @dataclass(frozen=True)
 class Labels:
     """Immutable annotation labels."""
-    material: Optional[str] = None
-    material_category: Optional[str] = None
-    object_name: Optional[str] = None
-    object_category: Optional[str] = None
-    task: Optional[str] = None
+
+    material: str | None = None
+    material_category: str | None = None
+    object_name: str | None = None
+    object_category: str | None = None
+    task: str | None = None
     custom_tags: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         d = {}
-        if self.material: d["material"] = self.material
-        if self.material_category: d["material_category"] = self.material_category
-        if self.object_name: d["object"] = self.object_name
-        if self.object_category: d["object_category"] = self.object_category
-        if self.task: d["task"] = self.task
-        if self.custom_tags: d["custom_tags"] = self.custom_tags
+        if self.material:
+            d["material"] = self.material
+        if self.material_category:
+            d["material_category"] = self.material_category
+        if self.object_name:
+            d["object"] = self.object_name
+        if self.object_category:
+            d["object_category"] = self.object_category
+        if self.task:
+            d["task"] = self.task
+        if self.custom_tags:
+            d["custom_tags"] = self.custom_tags
         return d
 
     @classmethod
@@ -117,6 +133,7 @@ class Labels:
 @dataclass(frozen=True)
 class RawData:
     """Immutable raw sensor data with checksum."""
+
     array: np.ndarray
     checksum: str
     dtype: str
@@ -139,6 +156,7 @@ class RawData:
 @dataclass(frozen=True)
 class UnifiedData:
     """Optional cross-sensor unified representation."""
+
     array: np.ndarray
     method: str
     source_modality: str
@@ -158,7 +176,9 @@ class _TransformDataset:
 
     def __init__(self, dataset, transform=None, target_transform=None):
         if _torch is None:
-            raise ImportError("torch is required for to_torch(). Install with: pip install 'haptix[torch]'")
+            raise ImportError(
+                "torch is required for to_torch(). Install with: pip install 'haptix[torch]'"
+            )
         self._dataset = dataset
         self._transform = transform
         self._target_transform = target_transform
@@ -196,7 +216,7 @@ class HaptData:
         sampling_rate_hz: float,
         interaction: InteractionMeta,
         labels: Labels,
-        unified: Optional[UnifiedData] = None,
+        unified: UnifiedData | None = None,
         version: str = "0.1.0",
     ):
         self._raw = raw
@@ -233,7 +253,7 @@ class HaptData:
         return self._labels
 
     @property
-    def unified(self) -> Optional[UnifiedData]:
+    def unified(self) -> UnifiedData | None:
         return self._unified
 
     @property
@@ -377,9 +397,7 @@ class HaptData:
 
         # Optionally wrap in DataLoader
         if batch_size is not None:
-            return torch.utils.data.DataLoader(
-                ds, batch_size=batch_size, shuffle=shuffle, **kwargs
-            )
+            return torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=shuffle, **kwargs)
 
         return ds
 

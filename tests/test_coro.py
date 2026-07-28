@@ -4,16 +4,15 @@ Tests cover: loading CSV pressure arrays, can_load detection,
 sensor type registration, edge cases (empty dirs, missing CSV columns).
 """
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from haptix.core import InteractionMeta, Labels, SensorMeta
-from haptix.sensors import list_sensors, get_sensor
-
+from haptix.sensors import get_sensor, list_sensors
 
 _NUM_TAXELS = 57  # Number of taxels in the Lab-CORO capacitive sensor
 
@@ -234,6 +233,7 @@ class TestCoroCapacitiveAdapter:
         """CoroCapacitive adapter should be retrievable via get_sensor()."""
         adapter = get_sensor("CoroCapacitive")
         from haptix.sensors.coro import CoroCapacitiveAdapter
+
         assert isinstance(adapter, CoroCapacitiveAdapter)
 
     def test_default_framerate(self):

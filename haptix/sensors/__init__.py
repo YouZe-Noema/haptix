@@ -5,12 +5,11 @@ Each adapter handles one sensor type's native file format.
 New sensors can be added by implementing the SensorAdapter protocol.
 """
 
-from typing import Protocol, runtime_checkable
-from pathlib import Path
 import sys
-import numpy as np
+from pathlib import Path
+from typing import Protocol, runtime_checkable
 
-from haptix.core import HaptData, RawData, SensorMeta, InteractionMeta, Labels
+from haptix.core import HaptData, InteractionMeta, Labels
 
 
 @runtime_checkable
@@ -34,9 +33,11 @@ _registry: dict[str, type[SensorAdapter]] = {}
 
 def register(sensor_type: str):
     """Decorator to register a sensor adapter."""
+
     def decorator(cls):
         _registry[sensor_type] = cls
         return cls
+
     return decorator
 
 
@@ -51,8 +52,7 @@ def get_sensor(sensor_type: str) -> SensorAdapter:
 
     if sensor_type not in _registry:
         raise ValueError(
-            f"Unknown sensor type: {sensor_type}. "
-            f"Available: {list(_registry.keys())}"
+            f"Unknown sensor type: {sensor_type}. " f"Available: {list(_registry.keys())}"
         )
     return _registry[sensor_type]()
 

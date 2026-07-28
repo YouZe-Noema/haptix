@@ -6,25 +6,24 @@ sensor type registration, edge cases (empty dirs, unsupported formats).
 
 import tempfile
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
 from haptix.core import InteractionMeta, Labels
-from haptix.sensors import list_sensors, get_sensor
+from haptix.sensors import get_sensor, list_sensors
 
 
 class TestGelSightAdapter:
     """Test the GelSight sensor adapter."""
 
-    def _make_grayscale_frames(self, path: Path, count: int = 5,
-                                h: int = 480, w: int = 640):
+    def _make_grayscale_frames(self, path: Path, count: int = 5, h: int = 480, w: int = 640):
         """Create synthetic grayscale GelSight frames."""
         for i in range(count):
             img = np.random.randint(0, 255, (h, w), dtype=np.uint8)
             Image.fromarray(img).save(path / f"frame_{i:04d}.png")
 
-    def _make_rgb_frames(self, path: Path, count: int = 3,
-                          h: int = 240, w: int = 320):
+    def _make_rgb_frames(self, path: Path, count: int = 3, h: int = 240, w: int = 320):
         """Create synthetic RGB GelSight frames."""
         for i in range(count):
             img = np.random.randint(0, 255, (h, w, 3), dtype=np.uint8)
@@ -46,6 +45,7 @@ class TestGelSightAdapter:
             assert adapter.can_load(tmp) is True
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_can_load_directory_with_jpg(self):
@@ -61,6 +61,7 @@ class TestGelSightAdapter:
             assert adapter.can_load(tmp) is True
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_can_load_empty_directory(self):
@@ -73,6 +74,7 @@ class TestGelSightAdapter:
             assert adapter.can_load(tmp) is False
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_can_load_non_image_files(self):
@@ -87,6 +89,7 @@ class TestGelSightAdapter:
             assert adapter.can_load(tmp) is False
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_can_load_non_existent_path(self):
@@ -110,6 +113,7 @@ class TestGelSightAdapter:
             assert adapter.can_load(img_path) is False
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_load_grayscale_frames(self):
@@ -141,6 +145,7 @@ class TestGelSightAdapter:
             assert data.raw.verify() is True
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_load_rgb_frames(self):
@@ -165,6 +170,7 @@ class TestGelSightAdapter:
             assert data.sampling_rate_hz == 30.0
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_load_jpg_frames(self):
@@ -187,12 +193,13 @@ class TestGelSightAdapter:
             assert data.raw.shape == (3, 240, 320, 3)
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_load_with_custom_sensor_meta(self):
         """Allow overriding sensor metadata on load."""
-        from haptix.sensors.gelsight import GelSightAdapter
         from haptix.core import SensorMeta
+        from haptix.sensors.gelsight import GelSightAdapter
 
         tmp = Path(tempfile.mkdtemp())
         try:
@@ -218,6 +225,7 @@ class TestGelSightAdapter:
             assert data.sensor.calibration_params["camera"] == "OV5640"
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_load_empty_directory_raises(self):
@@ -238,6 +246,7 @@ class TestGelSightAdapter:
                 pass
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_default_framerate(self):
@@ -258,12 +267,14 @@ class TestGelSightAdapter:
             assert data.sampling_rate_hz == 30.0
         finally:
             import shutil
+
             shutil.rmtree(tmp)
 
     def test_get_sensor_via_registry(self):
         """GelSight adapter should be retrievable via get_sensor()."""
         adapter = get_sensor("GelSight")
         from haptix.sensors.gelsight import GelSightAdapter
+
         assert isinstance(adapter, GelSightAdapter)
 
     def test_sort_order(self):
@@ -286,4 +297,5 @@ class TestGelSightAdapter:
             assert data.raw.shape[0] == count
         finally:
             import shutil
+
             shutil.rmtree(tmp)

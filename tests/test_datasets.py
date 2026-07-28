@@ -7,21 +7,18 @@ These tests cover:
   - Download orchestration (mocked HTTP)
 """
 
-import tempfile
 import shutil
-import json
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import numpy as np
+from unittest.mock import patch
 
 from haptix.datasets import (
-    list_datasets,
-    get_dataset_info,
-    download_dataset,
-    cached_datasets,
     cache_info,
+    cached_datasets,
     clear_cache,
+    download_dataset,
+    get_dataset_info,
+    list_datasets,
 )
 
 
@@ -63,8 +60,16 @@ class TestCatalog:
 
     def test_catalog_consistency(self):
         """Every dataset in the catalog must have all required metadata keys."""
-        required = {"name", "url", "description", "size_bytes",
-                     "sensor_type", "modality", "num_samples", "citation"}
+        required = {
+            "name",
+            "url",
+            "description",
+            "size_bytes",
+            "sensor_type",
+            "modality",
+            "num_samples",
+            "citation",
+        }
         for name in list_datasets():
             info = get_dataset_info(name)
             for key in required:
@@ -155,6 +160,7 @@ class TestDownload:
         # Mock the download function to create a fake archive
         def fake_download(url, dest):
             dest.write_bytes(b"fake archive content")
+
         mock_dl.side_effect = fake_download
 
         result = download_dataset("touch_and_go", cache_dir=cache_root)
@@ -193,6 +199,7 @@ class TestDownload:
 
         def fake_download(url, dest):
             dest.write_bytes(b"new data")
+
         mock_dl.side_effect = fake_download
 
         result = download_dataset("touch_and_go", cache_dir=cache_root, force=True)

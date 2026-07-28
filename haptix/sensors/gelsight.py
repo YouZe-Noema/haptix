@@ -12,12 +12,12 @@ produce RGB at different resolutions.
 """
 
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
-from haptix.core import HaptData, RawData, SensorMeta, InteractionMeta, Labels
+from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
 from haptix.sensors import register
-
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 

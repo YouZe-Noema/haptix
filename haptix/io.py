@@ -8,14 +8,13 @@ Load and save .hapt files.
   labels.json    — annotations
 """
 
-from pathlib import Path
-import json
 import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
 
-from haptix.core import (
-    HaptData, RawData, UnifiedData, SensorMeta, InteractionMeta, Labels
-)
+from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta, UnifiedData
 
 
 class ChecksumError(ValueError):
@@ -37,9 +36,7 @@ def load(path: str | Path) -> HaptData:
         return _load_dir(path)
     if path.suffix == ".hapt" and path.is_file():
         # Future: ZIP archive
-        raise HaptFormatError(
-            "Compressed .hapt files not yet supported. Use directory format."
-        )
+        raise HaptFormatError("Compressed .hapt files not yet supported. Use directory format.")
     raise FileNotFoundError(f"Not a valid .hapt path: {path}")
 
 
@@ -158,9 +155,7 @@ def save(data: HaptData, path: str | Path) -> Path:
     raw_dir.mkdir(exist_ok=True)
 
     np.save(raw_dir / "data.npy", data.raw.array)
-    checksum = data.raw.checksum or hashlib.sha256(
-        data.raw.array.tobytes()
-    ).hexdigest()
+    checksum = data.raw.checksum or hashlib.sha256(data.raw.array.tobytes()).hexdigest()
     with open(raw_dir / "checksum.sha256", "w") as f:
         f.write(checksum + "\n")
 

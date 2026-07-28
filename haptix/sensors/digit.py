@@ -9,10 +9,11 @@ This adapter handles the common DIGIT data formats.
 """
 
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
-from haptix.core import HaptData, RawData, SensorMeta, InteractionMeta, Labels
+from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
 from haptix.sensors import register
 
 
@@ -29,9 +30,7 @@ class DigitAdapter:
             # Check for image frames
             images = sorted(path.glob("*.png")) + sorted(path.glob("*.jpg"))
             return len(images) > 0
-        if path.suffix in (".mp4", ".avi"):
-            return True
-        return False
+        return path.suffix in (".mp4", ".avi")
 
     def load(
         self,
@@ -96,8 +95,7 @@ class DigitAdapter:
                 import cv2  # noqa: F401
             except ImportError:
                 raise ImportError(
-                    "Video loading requires opencv-python. "
-                    "Install with: pip install haptix[all]"
+                    "Video loading requires opencv-python. " "Install with: pip install haptix[all]"
                 )
             raise NotImplementedError("Video loading coming in v0.2.0")
 

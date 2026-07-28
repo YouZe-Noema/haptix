@@ -5,9 +5,10 @@ These tests require torch to be installed:
     pip install 'haptix[torch]'
 """
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -15,9 +16,13 @@ pytest.importorskip("torch")
 import torch
 
 from haptix.core import (
-    HaptData, RawData, SensorMeta, InteractionMeta, Labels, UnifiedData,
+    HaptData,
+    InteractionMeta,
+    Labels,
+    RawData,
+    SensorMeta,
 )
-from haptix.io import save, load
+from haptix.io import load, save
 
 
 def make_test_data() -> HaptData:
@@ -152,7 +157,7 @@ class TestToTorchTensorDataset:
         """Numeric label fields work (e.g., speed_mm_s as a proxy)."""
         data = make_test_data()
         ds = data.to_torch(label="task")
-        x, y = ds[0]
+        _, y = ds[0]
         assert isinstance(y, torch.Tensor)
         assert y.dtype == torch.long
 
@@ -248,7 +253,7 @@ class TestToTorchTransforms:
             return y  # identity for now
 
         ds = data.to_torch(label="material", target_transform=label_to_binary)
-        x, y = ds[0]
+        _, y = ds[0]
         assert isinstance(y, torch.Tensor)
 
 

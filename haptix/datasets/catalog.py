@@ -22,9 +22,7 @@ _DATASET_KEYS = {
 _CATALOG = {
     "coro_tactile": {
         "name": "coro_tactile",
-        "url": (
-            "https://os5.mycloud.com/action/share/dc475405-9198-4860-85c9-aeb3d8f79a09"
-        ),
+        "url": ("https://os5.mycloud.com/action/share/dc475405-9198-4860-85c9-aeb3d8f79a09"),
         "description": (
             "Lab-CORO Tactile Dataset: Real and simulated capacitive tactile sensor "
             "data for robotic grasping. Includes 46,200 samples (15,400 real, "
@@ -46,10 +44,7 @@ _CATALOG = {
     },
     "touch_and_go": {
         "name": "touch_and_go",
-        "url": (
-            "https://touchandgo.csail.mit.edu/dataset/"
-            "touch_and_go_v1.0.tar.gz"
-        ),
+        "url": ("https://touchandgo.csail.mit.edu/dataset/" "touch_and_go_v1.0.tar.gz"),
         "description": (
             "Touch and Go: Large-scale tactile-visual dataset recorded with "
             "DIGIT sensors on diverse materials during sliding interactions. "
@@ -68,10 +63,7 @@ _CATALOG = {
     },
     "ycb_slide": {
         "name": "ycb_slide",
-        "url": (
-            "https://rlab.columbia.edu/datasets/"
-            "ycb_slide_v1.0.zip"
-        ),
+        "url": ("https://rlab.columbia.edu/datasets/" "ycb_slide_v1.0.zip"),
         "description": (
             "YCB-Slide: Multi-modal tactile sliding dataset using YCB "
             "objects. Contains DIGIT and GelSight tactile images, "
@@ -91,10 +83,7 @@ _CATALOG = {
     },
     "robotouch": {
         "name": "robotouch",
-        "url": (
-            "https://robotouch.cs.columbia.edu/dataset/"
-            "robotouch_v2.0.tar.gz"
-        ),
+        "url": ("https://robotouch.cs.columbia.edu/dataset/" "robotouch_v2.0.tar.gz"),
         "description": (
             "RoboTouch: Large-scale tactile dataset for in-hand manipulation "
             "with DIGIT sensors. Includes diverse object geometries, "
@@ -126,10 +115,7 @@ def get_dataset_info(name: str) -> dict:
         KeyError: If *name* is not in the catalog.
     """
     if name not in _CATALOG:
-        raise KeyError(
-            f"Unknown dataset: {name}. "
-            f"Available: {', '.join(list_datasets())}"
-        )
+        raise KeyError(f"Unknown dataset: {name}. " f"Available: {', '.join(list_datasets())}")
     return dict(_CATALOG[name])
 
 
@@ -141,18 +127,12 @@ def _validate_catalog() -> None:
     for name, entry in _CATALOG.items():
         missing = _DATASET_KEYS - set(entry.keys())
         if missing:
-            raise RuntimeError(
-                f"Catalog entry {name!r} missing keys: {missing}"
-            )
+            raise RuntimeError(f"Catalog entry {name!r} missing keys: {missing}")
         for key in ("size_bytes", "num_samples"):
             if not isinstance(entry[key], (int, float)) or entry[key] <= 0:
-                raise RuntimeError(
-                    f"Catalog entry {name!r}: {key} must be a positive number"
-                )
+                raise RuntimeError(f"Catalog entry {name!r}: {key} must be a positive number")
         if not entry["url"].startswith("http"):
-            raise RuntimeError(
-                f"Catalog entry {name!r}: url must start with http"
-            )
+            raise RuntimeError(f"Catalog entry {name!r}: url must start with http")
 
 
 _validate_catalog()

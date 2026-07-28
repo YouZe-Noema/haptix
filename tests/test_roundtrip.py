@@ -4,16 +4,15 @@ Round-trip tests for .hapt format.
 These verify the core guarantee: load(save(data)) == data.
 """
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
-from haptix.core import (
-    HaptData, RawData, SensorMeta, InteractionMeta, Labels
-)
-from haptix.io import save, load
+from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
+from haptix.io import load, save
 
 
 def make_test_data() -> HaptData:
@@ -90,7 +89,7 @@ class TestRoundTrip:
             try:
                 load(saved_path)
                 assert False, "Should have raised ChecksumError"
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 assert "Checksum" in str(e) or "checksum" in str(e).lower()
         finally:
             shutil.rmtree(tmp)

@@ -5,26 +5,32 @@ Covers: empty directories, corrupt files, missing manifest fields,
 invalid modality values, mismatched shapes, and boundary conditions.
 """
 
-import tempfile
-import shutil
 import json
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from haptix.core import (
-    HaptData, RawData, UnifiedData, SensorMeta, InteractionMeta, Labels, Modality,
+    HaptData,
+    InteractionMeta,
+    Labels,
+    RawData,
+    SensorMeta,
+    UnifiedData,
 )
-from haptix.io import save, load, HaptFormatError, ChecksumError
-
+from haptix.io import ChecksumError, HaptFormatError, load, save
 
 # =========================================================================
 #  Helpers
 # =========================================================================
 
-def make_minimal_data(modality: str = "imaging", shape: tuple = (10, 240, 320, 3),
-                      dtype: np.dtype = np.uint8) -> HaptData:
+
+def make_minimal_data(
+    modality: str = "imaging", shape: tuple = (10, 240, 320, 3), dtype: np.dtype = np.uint8
+) -> HaptData:
     """Create a minimal valid HaptData for testing."""
     frames = np.random.randint(0, 255, shape, dtype=dtype)
     return HaptData(
@@ -104,6 +110,7 @@ def assert_raises_hapt_format(tmp_path: Path, **overrides):
 # =========================================================================
 #  Core data structure edge cases
 # =========================================================================
+
 
 class TestSensorMetaEdgeCases:
     """Edge cases for SensorMeta."""
@@ -362,6 +369,7 @@ class TestHaptDataEdgeCases:
 #  I/O edge cases: directory structure errors
 # =========================================================================
 
+
 class TestLoadMissingStructure:
     """Errors for missing .hapt directory structure."""
 
@@ -388,9 +396,16 @@ class TestLoadMissingStructure:
             d = tmp / "test.hapt"
             d.mkdir()
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             with open(d / "labels.json", "w") as f:
                 json.dump({"material": "test"}, f)
             with pytest.raises(HaptFormatError, match="raw"):
@@ -409,9 +424,16 @@ class TestLoadMissingStructure:
             with open(d / "raw" / "checksum.sha256", "w") as f:
                 f.write("0" * 64 + "\n")
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             with pytest.raises(HaptFormatError, match="labels.json"):
                 load(d)
         finally:
@@ -427,9 +449,16 @@ class TestLoadMissingStructure:
             with open(d / "raw" / "checksum.sha256", "w") as f:
                 f.write("0" * 64 + "\n")
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             with open(d / "labels.json", "w") as f:
                 json.dump({"material": "test"}, f)
             with pytest.raises(HaptFormatError, match="data.npy"):
@@ -451,9 +480,16 @@ class TestLoadCorruptFiles:
             (d / "raw" / "data.npy").write_bytes(b"not a valid numpy file")
             (d / "raw" / "checksum.sha256").write_text("0" * 64 + "\n")
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             with open(d / "labels.json", "w") as f:
                 json.dump({"material": "test"}, f)
             with pytest.raises((HaptFormatError, ValueError)):
@@ -475,9 +511,16 @@ class TestLoadCorruptFiles:
                 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
             )
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             with open(d / "labels.json", "w") as f:
                 json.dump({"material": "test"}, f)
             with pytest.raises(ChecksumError, match="Checksum"):
@@ -514,9 +557,16 @@ class TestLoadCorruptFiles:
             with open(d / "raw" / "checksum.sha256", "w") as f:
                 f.write(RawData.compute_checksum(arr) + "\n")
             with open(d / "manifest.json", "w") as f:
-                json.dump({"sensor": {"type": "test"}, "modality": "imaging",
-                           "sampling": {"rate_hz": 60}, "interaction": {"type": "static"},
-                           "version": "0.1.0"}, f)
+                json.dump(
+                    {
+                        "sensor": {"type": "test"},
+                        "modality": "imaging",
+                        "sampling": {"rate_hz": 60},
+                        "interaction": {"type": "static"},
+                        "version": "0.1.0",
+                    },
+                    f,
+                )
             (d / "labels.json").write_text("{bad json}")
             with pytest.raises(json.JSONDecodeError):
                 load(d)
@@ -532,7 +582,8 @@ class TestLoadMissingManifestFields:
         tmp = Path(tempfile.mkdtemp())
         try:
             assert_raises_hapt_format(
-                tmp, remove_manifest="sensor",
+                tmp,
+                remove_manifest="sensor",
             )
         finally:
             shutil.rmtree(tmp)
@@ -542,7 +593,8 @@ class TestLoadMissingManifestFields:
         tmp = Path(tempfile.mkdtemp())
         try:
             assert_raises_hapt_format(
-                tmp, remove_manifest="modality",
+                tmp,
+                remove_manifest="modality",
             )
         finally:
             shutil.rmtree(tmp)
@@ -552,7 +604,8 @@ class TestLoadMissingManifestFields:
         tmp = Path(tempfile.mkdtemp())
         try:
             assert_raises_hapt_format(
-                tmp, remove_manifest="interaction",
+                tmp,
+                remove_manifest="interaction",
             )
         finally:
             shutil.rmtree(tmp)
@@ -562,7 +615,8 @@ class TestLoadMissingManifestFields:
         tmp = Path(tempfile.mkdtemp())
         try:
             assert_raises_hapt_format(
-                tmp, remove_manifest="sampling",
+                tmp,
+                remove_manifest="sampling",
             )
         finally:
             shutil.rmtree(tmp)
@@ -572,7 +626,8 @@ class TestLoadMissingManifestFields:
         tmp = Path(tempfile.mkdtemp())
         try:
             assert_raises_hapt_format(
-                tmp, manifest_field=("sampling", {}),
+                tmp,
+                manifest_field=("sampling", {}),
             )
         finally:
             shutil.rmtree(tmp)
@@ -682,6 +737,7 @@ class TestLoadSingleFile:
 #  I/O edge cases: save/load with unusual data shapes and types
 # =========================================================================
 
+
 class TestSaveEdgeCases:
     """Edge cases for the save function."""
 
@@ -780,7 +836,7 @@ class TestSaveEdgeCases:
 
     def test_save_overwrites_existing(self):
         """Save to an existing directory should overwrite cleanly."""
-        arr = np.ones((2, 2), dtype=np.uint8)
+        _ = np.ones((2, 2), dtype=np.uint8)
         data = make_minimal_data(shape=(2, 2))
         tmp = Path(tempfile.mkdtemp())
         try:
@@ -890,11 +946,18 @@ class TestSaveEdgeCases:
 class TestSaveUnusualTypes:
     """Save and load data with unusual dtypes."""
 
-    @pytest.mark.parametrize("dtype", [
-        np.int16, np.int32, np.int64,
-        np.float32, np.float64,
-        np.uint16, np.uint32,
-    ])
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            np.int16,
+            np.int32,
+            np.int64,
+            np.float32,
+            np.float64,
+            np.uint16,
+            np.uint32,
+        ],
+    )
     def test_various_dtypes_roundtrip(self, dtype):
         """Various integer and float dtypes survive round-trip."""
         arr = np.arange(10 * 8, dtype=dtype).reshape(10, 8)
@@ -924,6 +987,7 @@ class TestSaveUnusualTypes:
 # =========================================================================
 #  DIGIT adapter edge cases
 # =========================================================================
+
 
 class TestDigitAdapterEdgeCases:
     """Edge cases for the DIGIT sensor adapter."""
@@ -962,6 +1026,7 @@ class TestDigitAdapterEdgeCases:
             # Single image file — not a directory
             img = np.zeros((10, 10, 3), dtype=np.uint8)
             from PIL import Image
+
             png_path = tmp / "single.png"
             Image.fromarray(img).save(png_path)
             assert adapter.can_load(png_path) is False
@@ -988,8 +1053,9 @@ class TestDigitAdapterEdgeCases:
 
     def test_mixed_frame_sizes(self):
         """Frames with inconsistent sizes — PIL returns different size, numpy stacking may fail."""
-        from haptix.sensors.digit import DigitAdapter
         from PIL import Image
+
+        from haptix.sensors.digit import DigitAdapter
 
         tmp = Path(tempfile.mkdtemp())
         try:
@@ -1011,8 +1077,9 @@ class TestDigitAdapterEdgeCases:
 
     def test_single_frame_load(self):
         """Load a directory with a single frame."""
-        from haptix.sensors.digit import DigitAdapter
         from PIL import Image
+
+        from haptix.sensors.digit import DigitAdapter
 
         tmp = Path(tempfile.mkdtemp())
         try:
@@ -1052,8 +1119,9 @@ class TestDigitAdapterEdgeCases:
 
     def test_load_with_custom_sensor_meta(self):
         """Allow overriding sensor metadata on DIGIT load."""
-        from haptix.sensors.digit import DigitAdapter
         from PIL import Image
+
+        from haptix.sensors.digit import DigitAdapter
 
         tmp = Path(tempfile.mkdtemp())
         try:
@@ -1080,13 +1148,16 @@ class TestDigitAdapterEdgeCases:
     def test_registration(self):
         """DIGIT and DIGIT_v2 are both registered."""
         from haptix.sensors import list_sensors
+
         sensors = list_sensors()
         assert "DIGIT" in sensors
         assert "DIGIT_v2" in sensors
 
+
 # =========================================================================
 #  Additional coverage tests
 # =========================================================================
+
 
 class TestGetSensorEdgeCases:
     """Edge cases for sensor registry."""
@@ -1094,6 +1165,7 @@ class TestGetSensorEdgeCases:
     def test_get_unknown_sensor_raises(self):
         """get_sensor with unknown type raises ValueError."""
         from haptix.sensors import get_sensor
+
         with pytest.raises(ValueError, match="Unknown sensor type"):
             get_sensor("nonexistent_sensor_type_xyz")
 
@@ -1101,6 +1173,7 @@ class TestGetSensorEdgeCases:
         """get_sensor('DIGIT') returns DigitAdapter."""
         from haptix.sensors import get_sensor
         from haptix.sensors.digit import DigitAdapter
+
         adapter = get_sensor("DIGIT")
         assert isinstance(adapter, DigitAdapter)
 
@@ -1108,6 +1181,7 @@ class TestGetSensorEdgeCases:
         """get_sensor('GelSight_Mini') returns GelSightAdapter."""
         from haptix.sensors import get_sensor
         from haptix.sensors.gelsight import GelSightAdapter
+
         adapter = get_sensor("GelSight_Mini")
         assert isinstance(adapter, GelSightAdapter)
 
@@ -1146,4 +1220,3 @@ class TestLoadWithoutChecksumFile:
             assert np.array_equal(result.raw.array, arr)
         finally:
             shutil.rmtree(tmp)
-
