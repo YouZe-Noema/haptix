@@ -14,7 +14,16 @@ from pathlib import Path
 
 import numpy as np
 
-from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta, UnifiedData
+from haptix.core import (
+    HaptData,
+    InteractionMeta,
+    Labels,
+    Provenance,
+    RawData,
+    SensorMeta,
+    Source,
+    UnifiedData,
+)
 
 
 class ChecksumError(ValueError):
@@ -44,6 +53,7 @@ def _load_dir(path: Path) -> HaptData:
     manifest_path = path / "manifest.json"
     raw_dir = path / "raw"
     labels_path = path / "labels.json"
+    provenance_path = path / "provenance.json"
     unified_dir = path / "unified"
 
     if not manifest_path.exists():
@@ -130,6 +140,17 @@ def _load_dir(path: Path) -> HaptData:
                 checksum=hashlib.sha256(unified_array.tobytes()).hexdigest(),
             )
 
+    # Optional provenance (v0.2+)
+    provenance = None
+    if provenance_path.exists():
+        with open(provenance_path) as f:
+            provenance_dict = json.load(f)
+        provenance = Provenance.from_dict(provenance_dict)
+
+    # New v0.2 manifest fields (backward-compatible: default to None)
+    coordinate_frame = manifest.get("coordinate_frame")
+    timestamps_s = manifest.get("sampling", {}).get("timestamps_s")
+
     return HaptData(
         raw=raw,
         sensor=sensor,
@@ -138,6 +159,9 @@ def _load_dir(path: Path) -> HaptData:
         interaction=interaction,
         labels=labels,
         unified=unified,
+        provenance=provenance,
+        coordinate_frame=coordinate_frame,
+        timestamps_s=timestamps_s,
         version=manifest.get("version", "0.1.0"),
     )
 
@@ -164,15 +188,17 @@ def save(data: HaptData, path: str | Path) -> Path:
         "version": data.version,
         "sensor": data.sensor.to_dict(),
         "modality": data.modality,
+        "coordinate_frame": data.coordinate_frame,
         "sampling": {
             "rate_hz": data.sampling_rate_hz,
             "num_frames": data.raw.shape[0],
+            "timestamps_s": data.timestamps_s,
         },
         "raw_shape": list(data.raw.shape),
         "raw_dtype": str(data.raw.dtype),
         "interaction": data.interaction.to_dict(),
         "created": "2026-07-24T00:00:00Z",  # TODO: use actual timestamp
-        "created_by": "haptix/0.1.0",
+        "created_by": "haptix/0.2.0",
     }
     with open(path / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=2)
@@ -180,6 +206,23 @@ def save(data: HaptData, path: str | Path) -> Path:
     # Write labels
     with open(path / "labels.json", "w") as f:
         json.dump(data.labels.to_dict(), f, indent=2)
+
+    # Write provenance (v0.2+)
+    if data.provenance is not None:
+        with open(path / "provenance.json", "w") as f:
+            json.dump(data.provenance.to_dict(), f, indent=2)
+    else:
+        # Auto-generate minimal provenance for v0.1-origin data
+        import datetime
+
+        provenance = Provenance(
+            file_hash="",  # Computed on save
+            source=Source(),
+            created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            created_by="haptix/0.2.0",
+        )
+        with open(path / "provenance.json", "w") as f:
+            json.dump(provenance.to_dict(), f, indent=2)
 
     # Optional unified
     if data.unified is not None:

@@ -1,6 +1,6 @@
 # haptix — Tactile Data Infrastructure
 
-from haptix.core import HaptData, RawData, SensorMeta
+from haptix.core import HaptData, Provenance, RawData, SensorMeta, Source
 from haptix.datasets import (
     cache_info,
     cached_datasets,
@@ -15,8 +15,10 @@ from haptix.sensors import get_sensor, list_sensors
 __version__ = "0.1.0"
 __all__ = [
     "HaptData",
+    "Provenance",
     "RawData",
     "SensorMeta",
+    "Source",
     "cache_info",
     "cached_datasets",
     "clear_cache",

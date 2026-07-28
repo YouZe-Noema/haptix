@@ -65,21 +65,44 @@ haptix.save(data, "experiment.hapt")
 
 ## Architecture
 
-```
-Native Sensor File          .hapt Container              ML Framework
-(DIGIT dir, CSV, etc.)      (manifest + raw + labels)    (PyTorch / JAX)
+haptix operates at two layers:
 
-  ┌──────────┐              ┌──────────────────┐         ┌─────────────┐
-  │  DIGIT   │──┐           │  manifest.json   │         │ DataLoader  │
-  └──────────┘  │           │  raw/data.npy    │         │ TensorDataset│
-                ├─ adapter ─│  raw/checksum    │── .to_torch() ─│             │
-  ┌──────────┐  │           │  labels.json     │         │ .to_jax()   │
-  │ GelSight │──┘           └──────────────────┘         └─────────────┘
-  └──────────┘
-  ┌──────────┐
-  │ Coro CSV │── adapter ──► same .hapt container
-  └──────────┘
 ```
+                          L0: Sensor Abstraction
+  ┌──────────┐     ┌─────────────────────────────────┐
+  │  DIGIT   │────▶│  DigitAdapter.can_load()        │
+  └──────────┘     │  DigitAdapter.load() → np.array │
+  ┌──────────┐     │                                 │
+  │ GelSight │────▶│  GelSightAdapter                │
+  └──────────┘     │                                 │
+  ┌──────────┐     │  CoroAdapter                    │
+  │ Coro CSV │────▶│  (auto-discovered via @register)│
+  └──────────┘     └───────────────┬─────────────────┘
+                                   │
+                    ┌──────────────▼─────────────────┐
+                    │      L1: Container Format       │
+                    │  ┌───────────────────────────┐  │
+                    │  │ experiment.hapt/          │  │
+                    │  │  ├── manifest.json        │  │
+                    │  │  ├── provenance.json      │  │
+                    │  │  ├── raw/data.npy         │  │
+                    │  │  ├── raw/checksum.sha256  │  │
+                    │  │  ├── labels.json          │  │
+                    │  │  └── unified/  (optional) │  │
+                    │  └───────────────────────────┘  │
+                    └───────────────┬─────────────────┘
+                                    │
+                    ┌──────────────▼─────────────────┐
+                    │       ML Framework             │
+                    │  .to_torch() → DataLoader      │
+                    │  .to_jax()   → JAX arrays      │
+                    └────────────────────────────────┘
+```
+
+- **L0** (`haptix/sensors/`): Adapters that know how to parse each sensor's native format into a numpy array. Two methods: `can_load()` + `load()`. Auto-discovered via `@register`.
+- **L1** (`haptix/core.py`, `io.py`): The `.hapt` format — immutable raw data, checksums, provenance tracking, content-addressable file identity.
+
+L2 (sim-to-real, data augmentation) and L3 (downstream benchmarks) live above `.hapt` — the format stays out of the way.
 
 ---
 
@@ -115,7 +138,7 @@ Python 3.10+ required.
 
 ## Roadmap
 
-### v0.1 — Foundation ✅ (current)
+### v0.1 — Foundation ✅
 - [x] `.hapt` container format spec (v0.1)
 - [x] Core data model: `HaptData`, `RawData`, `SensorMeta`, `InteractionMeta`, `Labels`
 - [x] IO: `save()` / `load()` with checksum verification and round-trip guarantee
@@ -127,12 +150,17 @@ Python 3.10+ required.
 - [x] CI/CD: lint + test on Python 3.10–3.12
 
 ### v0.2 — Real Data & Coverage (in progress)
+- [x] Provenance tracking: `provenance.json` with file hashes, derivation chain, processing history
+- [x] Content-addressable file identity (`file_hash` = SHA-256 of directory)
+- [x] `coordinate_frame` field in manifest (world / sensor_local / robot_base / object)
+- [x] `timestamps_s` per-frame timestamps in manifest (always present, null for equal spacing)
+- [x] Spec v0.2: [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.md)
 - [ ] Real sensor validation (Lab-CORO, DIGIT, GelSight capture data)
 - [ ] PyPI publication (`pip install haptix`)
 - [ ] BioTac, TacTip adapters
-- [ ] Video loading for DIGIT (.mp4)
-- [ ] Hosted dataset catalog with download
-- [ ] Compression mode (`.hapt.zip`)
+- [ ] Zarr+Zstd compression mode (`.hapt.zarr`)
+- [ ] ZIP archive mode (`.hapt.zip`)
+- [ ] Hosted dataset catalog with provenance + checksum linking
 
 ### v0.3 — Unified Representations
 - [ ] Cross-sensor latent space (shared embedding across modalities)
@@ -149,9 +177,26 @@ Python 3.10+ required.
 
 ---
 
+## Related Projects & Differentiation
+
+haptix doesn't compete with these — it complements them. Our role is the storage and interchange layer that connects data producers to ML consumers.
+
+| Project | Relationship | Notes |
+|---------|-------------|-------|
+| **TouchNet** (Eric / 一木科技) | Upstream / complementary | TouchNet solves data collection + annotation + model training. If TouchNet outputs `.hapt`, any `.hapt` reader can directly consume TouchNet data. We plan to actively pursue interoperability. |
+| **TactiDex** (Ni et al., 2026) | Reference benchmark | Real-world tactile-guided dexterous manipulation benchmark. Shows what downstream tasks need — haptix provides the data format they'd consume. |
+| **ViTacWorld** (Huang et al., 2026) | Reference method | Scaling visuo-tactile world models. Their world model could be stored as `.hapt/unified/` representations. |
+| **OPENTOUCH** (Song, Li, Fu et al., MIT/CMU) | Reference dataset | First in-the-wild egocentric full-hand tactile dataset. Natural candidate for haptix catalog hosting. |
+| **Touch and Go** (Yang et al., 2022) | Reference dataset | Paired egocentric video + tactile. Shows the need for cross-modal alignment — exactly what `unified/` targets. |
+| **LeRobot** (Hugging Face) | Complementary | Robot learning datasets. haptix could provide tactile format support for LeRobot's dataset ecosystem. |
+| **Open X-Embodiment** (Google DeepMind) | Complementary | Large-scale robot manipulation datasets. Currently vision+proprioception dominant — haptix could add standardized tactile. |
+| **SSVTP** / **TouchNet-Bench** | Reference benchmark | Tactile perception benchmarks. Their evaluation protocol would benefit from a format that guarantees checksummed reproducibility. |
+
+---
+
 ## Format
 
-The `.hapt` specification is in [`spec/hapt-spec-v0.1.md`](spec/hapt-spec-v0.1.md). Key properties:
+The `.hapt` specification is in [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.md). Key properties:
 
 - **Immutable raw data** — `RawData` is a frozen dataclass. Once written, sensor data cannot be modified.
 - **Checksum-verified** — SHA-256 on every load. Corrupted files raise `ChecksumError`.
@@ -171,10 +216,13 @@ ruff check haptix/ tests/        # lint
 black haptix/ tests/             # format
 ```
 
-This project is under active autonomous development via [Hermes Agent](https://hermes-agent.nousresearch.com).
+This project is under active autonomous development by 幽赜 (Noema), a Hermes-based autonomous agent by Ronald Xia.
 
 ---
 
 ## License
 
-MIT © Ronald Xia
+- **Code**: MIT © Ronald Xia
+- **Format specification**: MIT (same as code)
+- **Datasets and pre-trained models** (future): Individual licenses specified in each dataset's `provenance.json`. Models may use OpenRAIL-M or similar layered licenses.
+- **Contributions**: By submitting a PR, you agree to license your contribution under MIT. See [CONTRIBUTING.md](CONTRIBUTING.md).

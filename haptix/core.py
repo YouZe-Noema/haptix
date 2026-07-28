@@ -131,6 +131,116 @@ class Labels:
 
 
 @dataclass(frozen=True)
+class ProcessingStep:
+    """A single processing step in a data pipeline."""
+
+    name: str
+    params: dict = field(default_factory=dict)
+    tool: str | None = None
+
+    def to_dict(self) -> dict:
+        d = {"name": self.name, "params": self.params}
+        if self.tool:
+            d["tool"] = self.tool
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ProcessingStep":
+        return cls(
+            name=d["name"],
+            params=d.get("params", {}),
+            tool=d.get("tool"),
+        )
+
+
+@dataclass(frozen=True)
+class Source:
+    """Origin metadata for a .hapt file."""
+
+    dataset: str | None = None
+    url: str | None = None
+    citation: str | None = None
+    license: str | None = None
+    collection_date: str | None = None
+    sensor_calibration: str | None = None
+
+    def to_dict(self) -> dict:
+        d = {}
+        if self.dataset:
+            d["dataset"] = self.dataset
+        if self.url:
+            d["url"] = self.url
+        if self.citation:
+            d["citation"] = self.citation
+        if self.license:
+            d["license"] = self.license
+        if self.collection_date:
+            d["collection_date"] = self.collection_date
+        if self.sensor_calibration:
+            d["sensor_calibration"] = self.sensor_calibration
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Source":
+        return cls(
+            dataset=d.get("dataset"),
+            url=d.get("url"),
+            citation=d.get("citation"),
+            license=d.get("license"),
+            collection_date=d.get("collection_date"),
+            sensor_calibration=d.get("sensor_calibration"),
+        )
+
+
+@dataclass(frozen=True)
+class Provenance:
+    """Immutable provenance tracking for data lineage.
+
+    Records file identity (content-addressable hash), derivation chain,
+    processing history, and source metadata.
+    """
+
+    file_hash: str
+    derived_from: str | None = None
+    processing: list = field(default_factory=list)
+    is_lossy: bool = False
+    source: Source = field(default_factory=Source)
+    created: str = ""
+    created_by: str = "haptix/0.2.0"
+
+    def to_dict(self) -> dict:
+        return {
+            "file_hash": self.file_hash,
+            "derived_from": self.derived_from,
+            "processing": [
+                p.to_dict() if isinstance(p, ProcessingStep) else p for p in self.processing
+            ],
+            "is_lossy": self.is_lossy,
+            "source": self.source.to_dict(),
+            "created": self.created,
+            "created_by": self.created_by,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Provenance":
+        processing = []
+        for p in d.get("processing", []):
+            if isinstance(p, dict):
+                processing.append(ProcessingStep.from_dict(p))
+            else:
+                processing.append(p)
+        return cls(
+            file_hash=d.get("file_hash", ""),
+            derived_from=d.get("derived_from"),
+            processing=processing,
+            is_lossy=d.get("is_lossy", False),
+            source=Source.from_dict(d.get("source", {})),
+            created=d.get("created", ""),
+            created_by=d.get("created_by", "haptix/0.2.0"),
+        )
+
+
+@dataclass(frozen=True)
 class RawData:
     """Immutable raw sensor data with checksum."""
 
@@ -217,6 +327,9 @@ class HaptData:
         interaction: InteractionMeta,
         labels: Labels,
         unified: UnifiedData | None = None,
+        provenance: "Provenance | None" = None,
+        coordinate_frame: str | None = None,
+        timestamps_s: list | None = None,
         version: str = "0.1.0",
     ):
         self._raw = raw
@@ -226,6 +339,9 @@ class HaptData:
         self._interaction = interaction
         self._labels = labels
         self._unified = unified
+        self._provenance = provenance
+        self._coordinate_frame = coordinate_frame
+        self._timestamps_s = timestamps_s
         self._version = version
 
     @property
@@ -259,6 +375,18 @@ class HaptData:
     @property
     def version(self) -> str:
         return self._version
+
+    @property
+    def provenance(self) -> "Provenance | None":
+        return self._provenance
+
+    @property
+    def coordinate_frame(self) -> str | None:
+        return self._coordinate_frame
+
+    @property
+    def timestamps_s(self) -> list | None:
+        return self._timestamps_s
 
     def _to_tensor(self, arr: np.ndarray, dtype) -> "torch.Tensor":
         """Convert numpy array to torch tensor with safe type handling."""
