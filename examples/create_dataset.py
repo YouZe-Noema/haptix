@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Batch-create a tactile dataset from synthetic data with varied parameters."""
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
 
 from haptix import save
 from haptix.core import (
     HaptData,
-    RawData,
-    SensorMeta,
     InteractionMeta,
     Labels,
+    RawData,
+    SensorMeta,
 )
 
 

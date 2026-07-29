@@ -25,16 +25,19 @@ Requirements:
     pip install haptix[all] pillow matplotlib
 """
 
-import sys
 import argparse
 import tempfile
 from pathlib import Path
-import numpy as np
-from PIL import Image
 
-from haptix import load, save, get_sensor
+import numpy as np
+
+from haptix import get_sensor, load, save
 from haptix.core import (
-    HaptData, RawData, SensorMeta, InteractionMeta, Labels,
+    HaptData,
+    InteractionMeta,
+    Labels,
+    RawData,
+    SensorMeta,
 )
 
 # ---------------------------------------------------------------------------

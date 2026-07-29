@@ -22,18 +22,22 @@ Requirements:
     pip install haptix[all] pillow
 """
 
-import sys
 import json
+import sys
 import tempfile
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
-from haptix import load, save, get_sensor, list_sensors
+from haptix import get_sensor, list_sensors, load, save
 from haptix.core import (
-    HaptData, RawData, UnifiedData, SensorMeta, InteractionMeta, Labels,
+    HaptData,
+    InteractionMeta,
+    Labels,
+    SensorMeta,
+    UnifiedData,
 )
-from haptix.io import ChecksumError
 
 # ---------------------------------------------------------------------------
 # Demo helpers
@@ -108,7 +112,7 @@ def step2_save_as_hapt(data: HaptData, output_path: Path) -> Path:
     saved = save(data, output_path)
 
     print(f"\n  Saved to: {saved}")
-    print(f"  Directory listing:")
+    print("  Directory listing:")
     for p in sorted(saved.rglob("*")):
         if p.is_file():
             size_kb = p.stat().st_size / 1024
@@ -218,7 +222,7 @@ def step5_save_and_load_unified(data: HaptData, output_dir: Path):
 
     loaded = load(hapt_path)
 
-    print(f"\n  Loaded back:")
+    print("\n  Loaded back:")
     print(f"    Unified present: {loaded.unified is not None}")
     if loaded.unified is not None:
         print(f"    Unified shape:  {loaded.unified.shape}")

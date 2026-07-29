@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Using the DIGIT sensor adapter to convert native formats to .hapt."""
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
 from PIL import Image
 

@@ -195,9 +195,7 @@ class CoroCapacitiveAdapter:
         def _is_data_column(col_values):
             """Return True if column appears to contain real sensor data."""
             unique = col_values.unique()
-            if len(unique) <= 1:
-                return False  # Constant column — likely marker
-            return True
+            return len(unique) > 1  # Constant column → not a data column
 
         # Remove non-data columns
         data_cols = [c for c in df.columns if c != "Path"]

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """Basic usage of haptix: load, inspect, save, and round-trip."""
 
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 import numpy as np
 
 # === Import ===
-
 import haptix
 from haptix.core import (
     HaptData,
-    RawData,
-    SensorMeta,
     InteractionMeta,
     Labels,
+    RawData,
+    SensorMeta,
 )
 
 

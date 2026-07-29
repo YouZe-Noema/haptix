@@ -20,15 +20,18 @@ Requirements:
 """
 
 import sys
-import json
 import tempfile
 from pathlib import Path
-import numpy as np
-from PIL import Image
 
-from haptix import load, save, get_sensor, list_sensors
+import numpy as np
+
+from haptix import list_sensors, load, save
 from haptix.core import (
-    HaptData, RawData, SensorMeta, InteractionMeta, Labels,
+    HaptData,
+    InteractionMeta,
+    Labels,
+    RawData,
+    SensorMeta,
 )
 
 # ---------------------------------------------------------------------------
@@ -245,7 +248,7 @@ def main():
     print("Training Random Forest classifier...")
     try:
         from sklearn.ensemble import RandomForestClassifier
-        from sklearn.metrics import classification_report, accuracy_score
+        from sklearn.metrics import accuracy_score, classification_report
 
         clf = RandomForestClassifier(n_estimators=50, random_state=42)
         clf.fit(X_train, y_train)
