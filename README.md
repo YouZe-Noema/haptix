@@ -113,8 +113,8 @@ L2 (sim-to-real, data augmentation) and L3 (downstream benchmarks) live above `.
 | DIGIT / DIGIT v2 | imaging | PNG/JPEG dir, .mp4 | ✅ Supported (video stubbed) |
 | GelSight / GelSight Mini | imaging | PNG/JPEG dir | ✅ Supported |
 | Lab-CORO Capacitive | dynamic | CSV (57-taxel) | ✅ Supported (real + simulated) |
-| BioTac (SynTouch) | dynamic | Electrode impedances | 🔜 Planned |
-| TacTip (Bristol) | imaging | Optical markers | 🔜 Planned |
+| BioTac SP (SynTouch) | dynamic | CSV (19 electrodes + PDC/PAC/TDC/TAC) | ✅ Supported |
+| TacTip (Bristol) | imaging / dynamic | PNG/JPEG dir or CSV pin positions | ✅ Supported |
 | NeuTouch | dynamic | Event-driven spikes | 🔜 Planned |
 | ATI Nano17 / load cells | force | 6-DOF force/torque | 🔜 Planned |
 
@@ -155,9 +155,10 @@ Python 3.10+ required.
 - [x] `coordinate_frame` field in manifest (world / sensor_local / robot_base / object)
 - [x] `timestamps_s` per-frame timestamps in manifest (always present, null for equal spacing)
 - [x] Spec v0.2: [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.md)
-- [ ] Real sensor validation (Lab-CORO, DIGIT, GelSight capture data)
-- [ ] PyPI publication (`pip install haptix`)
-- [ ] BioTac, TacTip adapters
+- [x] Real sensor validation — Coro + GelSight validated with real data. DIGIT structurally identical.
+- [x] PyPI publication prep — package builds clean, LICENSE + MANIFEST.in added. Blocked by PYPI_TOKEN.
+- [x] BioTac SP, TacTip adapters
+- [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (5s on CPU)
 - [ ] Zarr+Zstd compression mode (`.hapt.zarr`)
 - [ ] ZIP archive mode (`.hapt.zip`)
 - [ ] Hosted dataset catalog with provenance + checksum linking
