@@ -1,104 +1,81 @@
-# haptix Real Data Validation Report — v0.1
+# haptix Real Data Validation Report — v0.2
 
 > Date: 2026-07-29
-> Status: Synthetic validation complete. Real sensor validation blocked by data availability.
+> Status: Coro adapter validated with real data. DIGIT/GelSight pending.
 
 ## Summary
 
-All three adapters (CoroCapacitive, DIGIT, GelSight) pass round-trip validation with synthetic data matching known real formats. No real sensor data could be validated due to external dataset unavailability.
+CoroCapacitive adapter validated against real Lab-CORO sensor data (Dataset01).
+Two bugs discovered and fixed. DIGIT and GelSight adapters still pending real
+data.
 
-## Adapter Validation Results
+## CoroCapacitive Validation — ✅ PASSED (real data)
 
-### 1. CoroCapacitive (Lab-CORO) — ✅ Synthetic, ⚠️ Real data unavailable
+**Data source:** Lab-CORO TactileDataset, "Simulations > Real > Dataset01"
+(MyCloud shared folder, not the broken "DatasetFiles" link from README).
 
-**Format expected:** CSV with `Path` column grouping 57 taxel readings per frame, or
-flat CSV with one row per frame and taxel values as columns.
+**Files tested:**
+| File | Rows | Columns | Size | Round-trip |
+|------|------|---------|------|------------|
+| `Dataset_01_Real.csv` | 786 | 29 (force + tax1..tax28) | 372 KB | ✓ |
+| `Dataset_01_Real_V2.csv` | 300 | 29 (force + tax1..tax28) | 163 KB | ✓ |
 
-**Synthetic tests (132 passed):**
-- `Flat_Real_Abaqus.csv` format (Path + Pressure + X, Y columns)
-- One-row-per-sample format (Path + t0..t56 columns)
-- can_load() detection on valid/invalid directories
-- Round-trip: save → reload → checksum match
-- Auto-detection of taxel count from data columns
-- Edge cases: empty dir, non-CSV files, missing columns, single-row vs multi-row
+**Format:** `force,tax1,tax2,...,tax28,Path` — 28 taxels (not 57 as assumed),
+Path column is LAST (not first). Each row is a complete sensor frame.
 
-**Real data attempt:**
-- Lab-CORO TactileDataset on GitHub: repo contains only GUI code and README
-- External dataset download (MyCloud link from README): **folder is empty** — share expired or removed
-- Zenodo, Figshare searches: no mirrors found
-- Authors: Berith De la Cruz Sánchez (berithcruzs@gmail.com), Jennifer Kwiatkowski, Jean-Philippe Roberge
+## Bugs Found and Fixed
 
-**Recommendation:** Contact authors for dataset access, or find an alternative capacitive tactile dataset (e.g., from the RoboTouch or Touch-and-Go projects).
+### Bug 1: Wrong data dimensionality for frame-per-row format
 
-### 2. DIGIT — ✅ Synthetic, ⚠️ No public sample dataset found
+**Symptom:** Real CSV with 786 rows, 10 Path groups, 29 columns produced shape
+(10, 79) instead of (786, 29).
 
-**Format expected:** Directory of PNG/JPEG frames or .mp4 video.
+**Root cause:** When a Path group had multiple rows AND multiple columns, the
+adapter took `mean(axis=1)` across columns, collapsing each row to a scalar.
+This was correct for the old format (each row = one taxel + metadata), but
+wrong for the real format (each row = all 29 taxel values).
 
-**Synthetic tests (part of 132 passed):**
-- Load from directory of synthetic PNG frames
-- can_load() detection (image dirs vs non-image dirs)
-- Round-trip save/load with checksum verification
-- Sensor metadata override support
-- Both `DIGIT` and `DIGIT_v2` registered
+**Fix:** Added column-count heuristic: if ≥10 columns → treat each row as a
+full frame. If 2-9 columns → treat as taxel-per-row with metadata (old behavior).
 
-**Real data attempt:**
-- No public DIGIT sample dataset found with permissive license
-- `facebookresearch/digit-interface` provides sensor API but no sample data
-- `facebookresearch/TACTO` is a simulator (generates synthetic data)
-- HuggingFace `tactile_lightbulb` and `tactile-video-pretrain` exist but are video datasets, not DIGIT-specific
-- `OpenGraphLabs-Research/ego-tactile-manipulation` contains DIGIT data but requires HuggingFace login
+### Bug 2: `np.pad` applied to wrong axis on 2D arrays
 
-**Recommendation:** The DIGIT adapter works with any directory of image frames. For real validation, any set of PNG/JPEG contact images can serve as test data — they don't need to be from a physical DIGIT sensor.
+**Symptom:** `np.stack` failed with "all input arrays must have the same shape"
+when frames had different row counts but same column count.
 
-### 3. GelSight — ✅ Synthetic, ⚠️ No public sample dataset found
+**Root cause:** `np.pad(arr, (0, n))` on a 2D array pads axis 1 (columns), not
+axis 0 (rows). The padding should be `((0, n), (0, 0))` for row-only padding.
 
-**Format expected:** Directory of image frames (same architecture as DIGIT).
+**Fix:** When frames are 2D (frame-per-row format), use `np.concatenate` instead
+of pad+stack. All frames share the same column count by construction.
 
-**Synthetic tests (part of 132 passed):**
-- Load from directory of PNG frames
-- Round-trip save/load with checksum verification
-- Sensor metadata including calibration fields
+## Adapter Heuristic Summary
 
-**Real data attempt:**
-- GelSight datasets exist in research papers but rarely published with permissive licenses
-- The adapter can load any image directory — validation with any tactile-adjacent images would exercise the code path
+The Coro adapter now handles three CSV formats:
 
-## Test Suite Summary
+| Format | Columns | Each Row | Detection | Output |
+|--------|---------|----------|-----------|--------|
+| Taxel-per-row | 1-3 (Pressure + X + Y) | One taxel reading | `Path` exists, cols < 10 | Stack [groups, taxels] |
+| Frame-per-row | 10+ (force + tax1..taxN) | Full sensor frame | `Path` exists, cols ≥ 10 | Concat [total_rows, cols] |
+| Flat | Any (no Path) | Full sensor frame | No `Path` column | Passthrough [rows, cols] |
 
-```
-132 tests passed (all green)
-===================
-Round-trip       ✓  — checksum verification, re-serialization
-Edge cases       ✓  — empty dirs, corrupt files, metadata handling
-Coro CSV         ✓  — Path-grouped, flat, mixed formats
-DIGIT images     ✓  — PNG frames, sensor registration
-GelSight images  ✓  — PNG frames, calibration fields
-Torch interop    ✓  — to_torch(), batching
-Datasets         ✓  — catalog, download stubs
-```
+## Remaining Data Files (Pending)
 
-## Blocked Items
+The MyCloud shared folder contains 6 datasets (Dataset01-Dataset06) plus
+Abaqus simulation data and Bias calibration files. Dataset01 validated.
+Need user to bulk-download remaining files from:
+`Simulations > Real > Dataset02..Dataset06`
+`Simulations > Abaqus > ...`
+`Simulations > Issac > ...`
 
-| Item | Blocker | Impact |
-|------|---------|--------|
-| Coro real data validation | Dataset download link dead | Cannot verify taxel count auto-detection on real CSV |
-| DIGIT real data validation | No public sample dataset | Cannot verify image preprocessing pipeline |
-| GelSight real data validation | No public sample dataset | Same as DIGIT |
-| PyPI publication (Phase 2) | No real data confidence | Premature without at least one real-sensor validation |
-| End-to-end demo (Phase 3) | Requires real data | Demo needs real sensor → .hapt → PyTorch flow |
+## DIGIT / GelSight — ⚠️ Still pending
 
-## Assumptions Not Yet Verified
+No public sample dataset found. Adapters work with any image directory.
 
-1. **Coro CSV column naming** — The adapter uses flexible matching, but real CSVs may have unexpected column names for pressure data.
-2. **Coro taxel count** — Assumed 57; auto-detection works from data but untested on real 57-taxel arrays.
-3. **DIGIT frame naming** — Assumes standard frame naming; may break on custom naming conventions.
-4. **GelSight calibration** — Calibration fields are stored but not validated against real calibration data.
-5. **Sampling rate** — Default 30 Hz for Coro; actual rates may differ.
-6. **Endianness / dtype** — Adapter assumes float32; real sensors may produce int16 or int8.
+## Next Steps
 
-## Next Steps (Priority Order)
-
-1. **Contact Lab-CORO authors** for working dataset download link — this is the fastest path to real validation
-2. **Download any public DIGIT/GelSight video snippet** — even a YouTube clip of tactile data would exercise the image loading pipeline
-3. **If no real data available:** proceed with Phase 2 (PyPI) using synthetic-only validation, noting the limitation in README
-4. **Explore HuggingFace datasets** (`tactile_lightbulb`, `ego-tactile-manipulation`) as alternative real data sources
+1. **Download remaining Lab-CORO CSVs** (Dataset02-Dataset06, Abaqus, Issac)
+   — needs user to bulk-download from MyCloud (one-click-per-file UI)
+2. **Run full Coro validation** against all downloaded files
+3. **Update pyproject.toml** version for Phase 2 (PyPI prep)
+4. **Find or create DIGIT sample data** for Phase 1 completion

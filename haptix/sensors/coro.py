@@ -218,8 +218,13 @@ class CoroCapacitiveAdapter:
                 elif group_data.shape[1] == 1:
                     # Single data column: each row is a taxel reading
                     frame = group_data.values.flatten().astype(np.float32)
+                elif group_data.shape[1] >= 10:
+                    # Many columns (10+): each row is a full frame
+                    # (e.g., force + tax1..tax28 per row)
+                    frame = group_data.values.astype(np.float32)
                 else:
-                    # Multiple rows and columns: take mean across columns per row
+                    # Few columns (2-9): each row is one taxel with metadata
+                    # (e.g., Pressure + X + Y). Collapse via column mean.
                     frame = group_data.mean(axis=1).values.astype(np.float32)
 
                 frames.append(frame)
@@ -227,7 +232,13 @@ class CoroCapacitiveAdapter:
             if not frames:
                 return np.zeros((1, _NUM_TAXELS), dtype=np.float32)
 
-            # Ensure all frames have the same length
+            # Determine output format based on frame dimensionality.
+            # 2D frames (multiple rows × multiple cols): each row is already a
+            # complete sensor frame — concatenate all rows together.
+            # 1D frames (vector per group): pad to uniform length and stack.
+            if frames[0].ndim == 2:
+                return np.concatenate(frames, axis=0).astype(np.float32)
+
             target_len = max(len(f) for f in frames)
             aligned = []
             for f in frames:
