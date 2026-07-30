@@ -11,6 +11,7 @@ from haptix.datasets import (
 )
 from haptix.io import load, save
 from haptix.sensors import get_sensor, list_sensors
+from haptix.unified import SharedForceEncoder, UnifiedEncoder
 
 __version__ = "0.1.0"
 __all__ = [
@@ -18,7 +19,9 @@ __all__ = [
     "Provenance",
     "RawData",
     "SensorMeta",
+    "SharedForceEncoder",
     "Source",
+    "UnifiedEncoder",
     "cache_info",
     "cached_datasets",
     "clear_cache",
