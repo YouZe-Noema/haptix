@@ -19,7 +19,6 @@ Requirements:
     pip install haptix[torch] torch
 """
 
-import os
 import shutil
 import tempfile
 import time
@@ -40,9 +39,8 @@ from haptix.core import (
 # ── PyTorch (optional, but required for the training portion) ──────────────
 try:
     import torch
-    import torch.nn as nn
     import torch.nn.functional as F
-    import torch.optim as optim
+    from torch import nn, optim
 except ImportError:
     print("ERROR: torch is required. Install with: pip install 'haptix[torch]' torch")
     raise SystemExit(1)
@@ -137,9 +135,7 @@ def create_synthetic_dataset(
     for mat_idx, material in enumerate(MATERIALS):
         for trial in range(trials_per_material):
             seed = mat_idx * 100 + trial
-            frames = _make_synthetic_frames(
-                material, n_frames=frames_per_trial, seed=seed
-            )
+            frames = _make_synthetic_frames(material, n_frames=frames_per_trial, seed=seed)
 
             data = HaptData(
                 raw=RawData(
@@ -191,9 +187,7 @@ class MultiHaptDataset(torch.utils.data.Dataset):
         all_labels: list[int] = []
 
         # Build consistent label mapping
-        unique_materials = sorted(
-            {haptix.load(p).labels.material or "unknown" for p in hapt_paths}
-        )
+        unique_materials = sorted({haptix.load(p).labels.material or "unknown" for p in hapt_paths})
         self._label_map = {m: i for i, m in enumerate(unique_materials)}
         self._classes = unique_materials
 
@@ -364,18 +358,25 @@ def main() -> None:
         train_size = int(len(dataset) * 0.8)
         test_size = len(dataset) - train_size
         train_ds, test_ds = torch.utils.data.random_split(
-            dataset, [train_size, test_size],
+            dataset,
+            [train_size, test_size],
             generator=torch.Generator().manual_seed(42),
         )
 
         train_loader = torch.utils.data.DataLoader(
-            train_ds, batch_size=32, shuffle=True, num_workers=0,
+            train_ds,
+            batch_size=32,
+            shuffle=True,
+            num_workers=0,
         )
         test_loader = torch.utils.data.DataLoader(
-            test_ds, batch_size=32, shuffle=False, num_workers=0,
+            test_ds,
+            batch_size=32,
+            shuffle=False,
+            num_workers=0,
         )
         print(f"  Train samples: {train_size}, Test samples: {test_size}")
-        print(f"  Batch size: 32")
+        print("  Batch size: 32")
 
         # ── Step 5: Train a tiny CNN ───────────────────────────────────────
         print()
@@ -388,7 +389,9 @@ def main() -> None:
 
         print(f"  Device: {device}")
         print(f"  Model params: {num_params:,}")
-        print(f"  Architecture: Conv(3→16)→BN→ReLU→Pool→Conv(16→32)→BN→ReLU→Pool→FC(32×8×8→{dataset.num_classes})")
+        print(
+            f"  Architecture: Conv(3→16)→BN→ReLU→Pool→Conv(16→32)→BN→ReLU→Pool→FC(32×8×8→{dataset.num_classes})"
+        )
 
         t_train_start = time.time()
         for epoch in range(5):
@@ -397,9 +400,49 @@ def main() -> None:
 
         t_train_end = time.time()
 
-        # ── Step 6: Evaluate on test set ───────────────────────────────────
+        # ── Step 6: Cross-sensor unified embedding ──────────────────────────
         print()
-        print("  Step 5: Evaluating on test set...")
+        print("  Step 5: Cross-sensor unified embedding (SharedForceEncoder)...")
+        from haptix.unified import SharedForceEncoder
+
+        encoder = SharedForceEncoder(embedding_dim=64)
+        print(f"  Encoder version: {encoder.version}")
+        print(f"  Supported sensors: {encoder.supported_sensors()}")
+
+        # Encode a sample .hapt file into the shared latent space
+        sample_data = haptix.load(hapt_paths[0])
+        unified = encoder.encode(sample_data)
+
+        # Create a copy with unified data embedded
+        sample_with_unified = HaptData(
+            raw=sample_data.raw,
+            sensor=sample_data.sensor,
+            modality=sample_data.modality,
+            sampling_rate_hz=sample_data.sampling_rate_hz,
+            interaction=sample_data.interaction,
+            labels=sample_data.labels,
+            unified=unified,
+        )
+
+        # Save with unified data embedded in the .hapt container
+        unified_path = tmpdir / "dataset" / "unified_demo.hapt"
+        haptix.save(sample_with_unified, unified_path)
+
+        # Reload and verify unified data survived round-trip
+        reloaded_u = haptix.load(unified_path)
+        assert reloaded_u.unified is not None, "Unified data lost in round-trip!"
+        assert reloaded_u.unified.array.shape == unified.array.shape, "Shape mismatch!"
+        assert reloaded_u.unified.method == unified.method, "Method mismatch!"
+
+        print(f"  ✅ Unified embedding: {unified.array.shape}")
+        print(f"     Method: {unified.method}")
+        print(f"     Target modality: {unified.target_modality}")
+        print("     Container path: unified/data.npy + unified/transform.json")
+        print("     Round-trip: ✓ (embedding preserved in .hapt container)")
+
+        # ── Step 7: Evaluate on test set ───────────────────────────────────
+        print()
+        print("  Step 6: Evaluating on test set...")
         model.eval()
         test_correct = 0
         test_total = 0
@@ -422,7 +465,7 @@ def main() -> None:
     print("=" * 68)
     print("  RESULTS")
     print("=" * 68)
-    print(f"  Pipeline:   sensor data → .hapt → round-trip ✓ → DataLoader → CNN")
+    print("  Pipeline:   sensor data → .hapt → round-trip ✓ → DataLoader → CNN")
     print(f"  Classes:    {class_names}")
     print(f"  Train acc:  {train_acc:.2%} (epoch 5)")
     print(f"  Test acc:   {test_acc:.2%}")

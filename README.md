@@ -164,8 +164,8 @@ Python 3.10+ required.
 - [ ] Hosted dataset catalog with provenance + checksum linking
 
 ### v0.3 — Unified Representations
-- [ ] Cross-sensor latent space (shared embedding across modalities)
-- [ ] `unified/` directory in `.hapt` container (transform metadata, model versioning)
+- [x] Cross-sensor latent space (SharedForceEncoder prototype — surrogate projections)
+- [x] `unified/` directory in `.hapt` container (transform metadata, model versioning, checksum)
 - [ ] Pre-trained encoders for common sensor types
 - [ ] Foundation model for tactile data
 
