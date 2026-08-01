@@ -159,7 +159,7 @@ Python 3.10+ required.
 - [x] PyPI publication prep — package builds clean, LICENSE + MANIFEST.in added. Blocked by PYPI_TOKEN.
 - [x] BioTac SP, TacTip adapters
 - [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (5s on CPU)
-- [ ] Zarr+Zstd compression mode (`.hapt.zarr`)
+- [x] Zarr+Zstd compression mode (`.hapt.zarr`)
 - [ ] ZIP archive mode (`.hapt.zip`)
 - [ ] Hosted dataset catalog with provenance + checksum linking
 
