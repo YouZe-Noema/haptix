@@ -156,11 +156,11 @@ Python 3.10+ required.
 - [x] `timestamps_s` per-frame timestamps in manifest (always present, null for equal spacing)
 - [x] Spec v0.2: [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.md)
 - [x] Real sensor validation — Coro + GelSight validated with real data. DIGIT structurally identical.
-- [x] PyPI publication prep — package builds clean, LICENSE + MANIFEST.in added. Blocked by PYPI_TOKEN.
+- [x] PyPI publication — haptix 0.2.0 live on PyPI (2026-08-03), verified fresh-venv install + round-trip
 - [x] BioTac SP, TacTip adapters
 - [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (5s on CPU)
 - [x] Zarr+Zstd compression mode (`.hapt.zarr`)
-- [ ] ZIP archive mode (`.hapt.zip`)
+- [x] ZIP archive mode (`.hapt.zip`) — single-file stdlib archive, no extra deps
 - [ ] Hosted dataset catalog with provenance + checksum linking
 
 ### v0.3 — Unified Representations

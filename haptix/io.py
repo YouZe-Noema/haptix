@@ -1,18 +1,23 @@
 """
 Load and save .hapt files.
 
-.hapt files are directories (or Zarr archives) with:
+.hapt files are directories (or single-file archives) with:
   manifest.json  — sensor meta + interaction params
   raw/           — native sensor data + checksum
   unified/       — optional cross-sensor rep
   labels.json    — annotations
 
-Compressed mode: .hapt.zarr stores everything in a single ZipStore file
-with Zstd-compressed chunks, while maintaining the same logical structure.
+Compressed single-file modes:
+  .hapt.zarr — ZipStore with Zstd-compressed chunks (needs zarr + numcodecs)
+  .hapt.zip  — plain ZIP archive (stdlib only, DEFLATE compression)
+
+Both maintain the same logical structure as the directory format.
 """
 
 import hashlib
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -62,10 +67,11 @@ class HaptFormatError(ValueError):
 def load(path: str | Path) -> HaptData:
     """Load a .hapt file from disk.
 
-    Supports three formats:
+    Supports four formats:
     - Directory: traditional .hapt directory with raw/data.npy
     - .hapt.zarr: single-file ZipStore with Zstd compression
-    - .hapt (flat file): reserved for future ZIP archive
+    - .hapt.zip: single-file ZIP archive (stdlib DEFLATE)
+    - .hapt (flat file): unsupported, raises HaptFormatError
 
     Automatically verifies checksum. Raises ChecksumError on mismatch."""
     path = Path(path)
@@ -74,12 +80,17 @@ def load(path: str | Path) -> HaptData:
     if path.suffix == ".zarr" and path.is_file():
         return _load_zarr(path)
 
+    # Support .hapt.zip single-file archive
+    if path.suffix == ".zip" and path.is_file():
+        return _load_zip(path)
+
     # Support both directory and legacy flat file
     if path.is_dir():
         return _load_dir(path)
     if path.suffix == ".hapt" and path.is_file():
-        # Future: ZIP archive
-        raise HaptFormatError("Compressed .hapt files not yet supported. Use directory format.")
+        raise HaptFormatError(
+            "Flat .hapt files are not supported. Use directory format, " ".hapt.zarr, or .hapt.zip."
+        )
     raise FileNotFoundError(f"Not a valid .hapt path: {path}")
 
 
@@ -206,6 +217,7 @@ def save(data: HaptData, path: str | Path) -> Path:
     Format is determined by file extension:
     - .hapt or directory path → traditional directory format
     - .hapt.zarr → single-file ZipStore with Zstd compression
+    - .hapt.zip → single-file ZIP archive (stdlib DEFLATE)
 
     Writes manifest.json, raw/data.npy + checksum, labels.json,
     and optionally unified/ data."""
@@ -213,24 +225,19 @@ def save(data: HaptData, path: str | Path) -> Path:
 
     if path.suffix == ".zarr":
         return _save_zarr(data, path)
+    if path.suffix == ".zip":
+        return _save_zip(data, path)
 
     path.mkdir(parents=True, exist_ok=True)
     return _save_dir(data, path)
 
 
-def _save_dir(data: HaptData, path: Path) -> Path:
-    """Save HaptData to a .hapt directory (traditional format)."""
-    # Write raw data
-    raw_dir = path / "raw"
-    raw_dir.mkdir(exist_ok=True)
+def _build_manifest(data: HaptData) -> dict:
+    """Build the manifest dict shared by all storage backends.
 
-    np.save(raw_dir / "data.npy", data.raw.array)
-    checksum = data.raw.checksum or hashlib.sha256(data.raw.array.tobytes()).hexdigest()
-    with open(raw_dir / "checksum.sha256", "w") as f:
-        f.write(checksum + "\n")
-
-    # Write manifest
-    manifest = {
+    Centralizes the v0.2 manifest schema so directory, .hapt.zarr, and
+    .hapt.zip backends can never drift apart."""
+    return {
         "version": data.version,
         "sensor": data.sensor.to_dict(),
         "modality": data.modality,
@@ -246,6 +253,33 @@ def _save_dir(data: HaptData, path: Path) -> Path:
         "created": "2026-07-24T00:00:00Z",  # TODO: use actual timestamp
         "created_by": "haptix/0.2.0",
     }
+
+
+def _default_provenance() -> Provenance:
+    """Auto-generate minimal provenance for data that has none (v0.1 origin)."""
+    import datetime
+
+    return Provenance(
+        file_hash="",  # Computed on save
+        source=Source(),
+        created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        created_by="haptix/0.2.0",
+    )
+
+
+def _save_dir(data: HaptData, path: Path) -> Path:
+    """Save HaptData to a .hapt directory (traditional format)."""
+    # Write raw data
+    raw_dir = path / "raw"
+    raw_dir.mkdir(exist_ok=True)
+
+    np.save(raw_dir / "data.npy", data.raw.array)
+    checksum = data.raw.checksum or hashlib.sha256(data.raw.array.tobytes()).hexdigest()
+    with open(raw_dir / "checksum.sha256", "w") as f:
+        f.write(checksum + "\n")
+
+    # Write manifest
+    manifest = _build_manifest(data)
     with open(path / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=2)
 
@@ -258,15 +292,7 @@ def _save_dir(data: HaptData, path: Path) -> Path:
         with open(path / "provenance.json", "w") as f:
             json.dump(data.provenance.to_dict(), f, indent=2)
     else:
-        # Auto-generate minimal provenance for v0.1-origin data
-        import datetime
-
-        provenance = Provenance(
-            file_hash="",  # Computed on save
-            source=Source(),
-            created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            created_by="haptix/0.2.0",
-        )
+        provenance = _default_provenance()
         with open(path / "provenance.json", "w") as f:
             json.dump(provenance.to_dict(), f, indent=2)
 
@@ -332,22 +358,7 @@ def _save_zarr(data: HaptData, path: Path) -> Path:
     raw_arr.attrs["checksum"] = checksum
 
     # Build manifest
-    manifest = {
-        "version": data.version,
-        "sensor": data.sensor.to_dict(),
-        "modality": data.modality,
-        "coordinate_frame": data.coordinate_frame,
-        "sampling": {
-            "rate_hz": data.sampling_rate_hz,
-            "num_frames": data.raw.shape[0],
-            "timestamps_s": data.timestamps_s,
-        },
-        "raw_shape": list(data.raw.shape),
-        "raw_dtype": str(data.raw.dtype),
-        "interaction": data.interaction.to_dict(),
-        "created": "2026-07-24T00:00:00Z",
-        "created_by": "haptix/0.2.0",
-    }
+    manifest = _build_manifest(data)
 
     # Store manifest, labels, provenance as root-level attributes
     root.attrs["manifest"] = manifest
@@ -356,14 +367,7 @@ def _save_zarr(data: HaptData, path: Path) -> Path:
     if data.provenance is not None:
         root.attrs["provenance"] = data.provenance.to_dict()
     else:
-        import datetime
-
-        provenance = Provenance(
-            file_hash="",
-            source=Source(),
-            created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            created_by="haptix/0.2.0",
-        )
+        provenance = _default_provenance()
         root.attrs["provenance"] = provenance.to_dict()
 
     # Optional unified
@@ -480,3 +484,141 @@ def _load_zarr(path: Path) -> HaptData:
         timestamps_s=timestamps_s,
         version=manifest.get("version", "0.1.0"),
     )
+
+
+def _save_zip(data: HaptData, path: Path) -> Path:
+    """Save HaptData to a single-file .hapt.zip archive.
+
+    Mirrors the directory layout inside the archive:
+      manifest.json
+      raw/data.npy + raw/checksum.sha256
+      labels.json
+      provenance.json          (auto-generated if absent)
+      unified/data.npy + unified/transform.json   (optional)
+
+    Uses stdlib zipfile with DEFLATE — no extra dependencies. The archive
+    is a plain ZIP, so any tool (unzip, file managers) can inspect it.
+    """
+    checksum = data.raw.checksum or hashlib.sha256(data.raw.array.tobytes()).hexdigest()
+
+    def _npy_bytes(arr: np.ndarray) -> bytes:
+        buf = io.BytesIO()
+        np.save(buf, arr)
+        return buf.getvalue()
+
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(_build_manifest(data), indent=2))
+        zf.writestr("labels.json", json.dumps(data.labels.to_dict(), indent=2))
+        zf.writestr("raw/data.npy", _npy_bytes(data.raw.array))
+        zf.writestr("raw/checksum.sha256", checksum + "\n")
+
+        if data.provenance is not None:
+            zf.writestr("provenance.json", json.dumps(data.provenance.to_dict(), indent=2))
+        else:
+            zf.writestr("provenance.json", json.dumps(_default_provenance().to_dict(), indent=2))
+
+        if data.unified is not None:
+            zf.writestr("unified/data.npy", _npy_bytes(data.unified.array))
+            zf.writestr("unified/checksum.sha256", data.unified.checksum + "\n")
+            zf.writestr(
+                "unified/transform.json",
+                json.dumps(
+                    {
+                        "method": data.unified.method,
+                        "source_modality": data.unified.source_modality,
+                        "target_modality": data.unified.target_modality,
+                        "is_lossy": data.unified.is_lossy,
+                    },
+                    indent=2,
+                ),
+            )
+
+    return path
+
+
+def _load_zip(path: Path) -> HaptData:
+    """Load a .hapt.zip single-file archive.
+
+    Reads all members, verifies the SHA-256 checksum, and reconstructs a
+    HaptData. Raises ChecksumError on mismatch, HaptFormatError on
+    malformed archives."""
+    try:
+        zf = zipfile.ZipFile(path, "r")
+    except zipfile.BadZipFile as e:
+        raise HaptFormatError(f"Not a valid .hapt.zip archive: {path}") from e
+
+    try:
+        names = set(zf.namelist())
+
+        required = {
+            "manifest.json": "Missing manifest.json in .hapt.zip",
+            "raw/data.npy": "Missing raw/data.npy in .hapt.zip",
+            "raw/checksum.sha256": "Missing raw/checksum.sha256 in .hapt.zip",
+            "labels.json": "Missing labels.json in .hapt.zip",
+        }
+        for member, msg in required.items():
+            if member not in names:
+                raise HaptFormatError(msg)
+
+        manifest = json.loads(zf.read("manifest.json"))
+        labels_dict = json.loads(zf.read("labels.json"))
+
+        # Load raw data and verify checksum
+        raw_array = np.load(io.BytesIO(zf.read("raw/data.npy")))
+        stored_checksum = zf.read("raw/checksum.sha256").decode().strip()
+        computed_checksum = hashlib.sha256(raw_array.tobytes()).hexdigest()
+
+        if computed_checksum != stored_checksum:
+            raise ChecksumError(
+                f"Checksum mismatch! Stored: {stored_checksum[:16]}..., "
+                f"Computed: {computed_checksum[:16]}..."
+            )
+
+        raw = RawData(
+            array=raw_array,
+            checksum=computed_checksum,
+            dtype=str(raw_array.dtype),
+            shape=raw_array.shape,
+        )
+
+        sensor = SensorMeta.from_dict(manifest["sensor"])
+        interaction = InteractionMeta.from_dict(manifest["interaction"])
+        labels = Labels.from_dict(labels_dict)
+
+        provenance = None
+        if "provenance.json" in names:
+            provenance = Provenance.from_dict(json.loads(zf.read("provenance.json")))
+
+        unified = None
+        if "unified/data.npy" in names and "unified/transform.json" in names:
+            unified_array = np.load(io.BytesIO(zf.read("unified/data.npy")))
+            transform = json.loads(zf.read("unified/transform.json"))
+            unified = UnifiedData(
+                array=unified_array,
+                method=transform.get("method", "unknown"),
+                source_modality=transform.get(
+                    "source_modality", manifest.get("modality", "unknown")
+                ),
+                target_modality=transform.get("target_modality", "unified"),
+                is_lossy=transform.get("is_lossy", True),
+                checksum=hashlib.sha256(unified_array.tobytes()).hexdigest(),
+            )
+
+        coordinate_frame = manifest.get("coordinate_frame")
+        timestamps_s = manifest.get("sampling", {}).get("timestamps_s")
+
+        return HaptData(
+            raw=raw,
+            sensor=sensor,
+            modality=manifest["modality"],
+            sampling_rate_hz=manifest["sampling"]["rate_hz"],
+            interaction=interaction,
+            labels=labels,
+            unified=unified,
+            provenance=provenance,
+            coordinate_frame=coordinate_frame,
+            timestamps_s=timestamps_s,
+            version=manifest.get("version", "0.1.0"),
+        )
+    finally:
+        zf.close()

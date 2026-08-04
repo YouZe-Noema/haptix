@@ -1,8 +1,9 @@
 # haptix End-to-End Demo
 
-> **Status:** ✅ Working (tested 2026-07-29)
-> **Runtime:** ~5 seconds on CPU
+> **Status:** ✅ Working (tested 2026-08-04)
+> **Runtime:** ~8 seconds on CPU
 > **Script:** `examples/end_to_end_demo.py`
+> **Package:** haptix 0.2.0 on PyPI — `pip install haptix[torch] torch`
 
 ## What It Shows
 
@@ -10,7 +11,7 @@ The demo validates the complete haptix pipeline end-to-end:
 
 1. **Real sensor data ingestion** — Loads GelSight frames (80 RGB images,
    480×640) and CoroCapacitive pressure arrays (786 frames, 29 columns) from
-   the `research/real-data/` directory.
+   the `research/real-data/` directory when present.
 
 2. **.hapt conversion** — Creates synthetic multi-material tactile data
    (5 materials × 5 trials × 12 frames), saves as `.hapt` files, reloads,
@@ -25,20 +26,32 @@ The demo validates the complete haptix pipeline end-to-end:
    cross-entropy loss and Adam optimizer.
 
 5. **Evaluation** — Reports per-epoch loss and accuracy, plus final test set
-   accuracy. With synthetic data, converges to 100% accuracy in 2-3 epochs.
+   accuracy. With synthetic data, converges to ~100% accuracy in 2-3 epochs.
+
+6. **Cross-sensor unified embedding** — The SharedForceEncoder maps the
+   sample into a shared latent space (`unified/` in the container), which
+   survives the round-trip.
+
+7. **Three storage formats** — The same data saves as a directory, a
+   `.hapt.zarr` (Zstd-compressed ZipStore), or a `.hapt.zip` (stdlib DEFLATE
+   archive, no extra dependencies). All three round-trip with identical
+   checksums; compressed formats are ~0.75x raw size even on synthetic data.
 
 ## Why It Matters
 
 This demo is the prerequisite for outreach to Eric Whittaker and the TouchNet
-team at UC Berkeley. It demonstrates:
+team. It demonstrates:
 
 - **Format maturity:** `.hapt` handles both imaging (GelSight) and dynamic
   (CoroCapacitive) modalities, with verified checksum round-trips.
 - **ML readiness:** Direct PyTorch DataLoader integration — no glue code.
   Researchers can go from sensor data to training loop in ~10 lines of haptix.
-- **Sensor coverage:** Adapters exist for GelSight, DIGIT, and CoroCapacitive.
-- **Production quality:** 132 tests pass, CI green on Python 3.10/3.11/3.12,
-  package builds clean for PyPI.
+- **Sensor coverage:** Adapters for GelSight, DIGIT, CoroCapacitive, BioTac SP,
+  and TacTip (5 sensor families).
+- **Production quality:** 217 tests pass, CI green on Python 3.10/3.11/3.12,
+  haptix 0.2.0 published on PyPI.
+- **Shareable artifacts:** a single `.hapt.zip` file carries raw data +
+  checksum + metadata + unified embedding — the "JPEG for touch" story.
 
 ## Running the Demo
 
@@ -129,7 +142,7 @@ Expected output:
 After this demo is working:
 
 1. **Replace synthetic data** with real GelSight/DIGIT frames from a
-   multi-material dataset (YCB-Sight, Touch-and-Go, etc.)
+   multi-material dataset (YCB-Sight, Touch-and-Go, OPENTOUCH, etc.)
 2. **Add augmentation** — random crops, rotations, brightness jitter
 3. **Scale up** — more materials, deeper CNN, real-world accuracy metrics
-4. **Outreach** — share demo with TouchNet team
+4. **Outreach** — share demo + `.hapt.zip` sample with TouchNet team

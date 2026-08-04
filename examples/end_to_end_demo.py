@@ -440,7 +440,40 @@ def main() -> None:
         print("     Container path: unified/data.npy + unified/transform.json")
         print("     Round-trip: ✓ (embedding preserved in .hapt container)")
 
-        # ── Step 7: Evaluate on test set ───────────────────────────────────
+        # ── Step 7: Storage formats — directory, .zarr, .zip ───────────────
+        print()
+        print("  Step 7: Storage formats (directory / .hapt.zarr / .hapt.zip)...")
+        fmt_dir = tmpdir / "dataset" / "unified_demo.hapt"
+        fmt_zarr = tmpdir / "dataset" / "unified_demo.hapt.zarr"
+        fmt_zip = tmpdir / "dataset" / "unified_demo.hapt.zip"
+
+        haptix.save(sample_with_unified, fmt_dir)
+        try:
+            haptix.save(sample_with_unified, fmt_zarr)
+        except ImportError:
+            fmt_zarr = None  # zarr not installed — skip gracefully
+        haptix.save(sample_with_unified, fmt_zip)
+
+        # Verify all formats round-trip with identical checksums
+        fmt_paths = [p for p in (fmt_dir, fmt_zarr, fmt_zip) if p is not None]
+        for fmt_path in fmt_paths:
+            reloaded_fmt = haptix.load(fmt_path)
+            assert reloaded_fmt.raw.checksum == sample_with_unified.raw.checksum
+            assert reloaded_fmt.unified is not None
+            assert np.array_equal(reloaded_fmt.unified.array, unified.array)
+
+        sizes = {
+            "directory": sum(p.stat().st_size for p in fmt_dir.rglob("*") if p.is_file()),
+        }
+        if fmt_zarr is not None:
+            sizes[".hapt.zarr"] = fmt_zarr.stat().st_size
+        sizes[".hapt.zip"] = fmt_zip.stat().st_size
+        raw_bytes = int(np.prod(sample_with_unified.raw.shape))
+        print(f"  ✅ Round-trip verified in {len(fmt_paths)} formats")
+        for name, size in sizes.items():
+            print(f"     {name:12s} {size:>10,} bytes  ({size / raw_bytes:.2f}x raw)")
+
+        # ── Step 8: Evaluate on test set ───────────────────────────────────
         print()
         print("  Step 6: Evaluating on test set...")
         model.eval()

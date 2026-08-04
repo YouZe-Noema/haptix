@@ -716,7 +716,7 @@ class TestLoadSingleFile:
         try:
             f = tmp / "test.hapt"
             f.write_text("not a real hapt file")
-            with pytest.raises(HaptFormatError, match="not yet supported"):
+            with pytest.raises(HaptFormatError, match="not supported"):
                 load(f)
         finally:
             shutil.rmtree(tmp)
