@@ -38,8 +38,8 @@ def _ensure_zarr():
     global _zarr, _numcodecs
     if _zarr is None:
         try:
-            import zarr as _zarr_mod
             import numcodecs as _nc_mod
+            import zarr as _zarr_mod
 
             _zarr = _zarr_mod
             _numcodecs = _nc_mod

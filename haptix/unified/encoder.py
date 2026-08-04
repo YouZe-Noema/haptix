@@ -22,7 +22,7 @@ losses (reconstruction + force equilibrium) per the UniForce paper.
 The interface stays the same — only the weights change.
 """
 
-from typing import Protocol, runtime_checkable
+from typing import ClassVar, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -65,7 +65,7 @@ def _resize_image_embedding(
     """
     from PIL import Image
 
-    T, H, W, C = arr.shape
+    T, C = arr.shape[0], arr.shape[3]
 
     # Convert to [T, target_dim, target_dim, C] via PIL bicubic resize
     resized = np.zeros((T, target_dim, target_dim, C), dtype=np.float32)
@@ -130,9 +130,15 @@ class SharedForceEncoder:
 
     version = _ENCODER_VERSION
 
-    # Sensors the encoder supports
-    _IMAGING_SENSORS = {"GelSight", "GelSight_Mini", "GelSight_Wedge", "DIGIT", "DIGIT_v2"}
-    _DYNAMIC_SENSORS = {"CoroCapacitive", "BioTac_SP", "TacTip"}
+    # Sensors the encoder supports (ClassVar: shared across instances)
+    _IMAGING_SENSORS: ClassVar[set[str]] = {
+        "GelSight",
+        "GelSight_Mini",
+        "GelSight_Wedge",
+        "DIGIT",
+        "DIGIT_v2",
+    }
+    _DYNAMIC_SENSORS: ClassVar[set[str]] = {"CoroCapacitive", "BioTac_SP", "TacTip"}
 
     def __init__(self, embedding_dim: int = _DEFAULT_EMBEDDING_DIM, seed: int = 42):
         self.embedding_dim = embedding_dim

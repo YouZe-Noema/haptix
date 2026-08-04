@@ -16,7 +16,7 @@ from haptix.core import (
     SensorMeta,
 )
 from haptix.io import load, save
-from haptix.unified import SharedForceEncoder, UnifiedEncoder, _ENCODER_VERSION
+from haptix.unified import _ENCODER_VERSION, SharedForceEncoder, UnifiedEncoder
 from haptix.unified.encoder import _pad_to_dim, _resize_image_embedding
 
 

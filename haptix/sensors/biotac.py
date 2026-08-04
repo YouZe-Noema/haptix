@@ -35,9 +35,7 @@ from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
 from haptix.sensors import register
 
 # Known BioTac channel names (case-insensitive matching)
-_ELECTRODE_PATTERNS = [f"e{i}" for i in range(1, 20)] + [
-    f"electrode_{i}" for i in range(1, 20)
-]
+_ELECTRODE_PATTERNS = [f"e{i}" for i in range(1, 20)] + [f"electrode_{i}" for i in range(1, 20)]
 _PRESSURE_PATTERNS = ["pdc", "pac", "pressure_dc", "pressure_ac"]
 _TEMP_PATTERNS = ["tdc", "tac", "temperature_dc", "temperature_ac"]
 
@@ -77,11 +75,9 @@ class BioTacAdapter:
             with open(path, "r") as f:
                 header = f.readline().strip()
             cols = [c.strip().lower().strip('"') for c in header.split(",")]
-            electrode_matches = sum(
-                1 for c in cols for pat in _ELECTRODE_PATTERNS if c in pat
-            )
+            electrode_matches = sum(1 for c in cols for pat in _ELECTRODE_PATTERNS if c in pat)
             return electrode_matches >= self._MIN_ELECTRODE_COLS
-        except Exception:
+        except (OSError, UnicodeDecodeError, AttributeError):
             return False
 
     def load(
@@ -121,9 +117,7 @@ class BioTacAdapter:
         first_row = [c.strip().lower().strip('"') for c in rows[0]]
 
         # Check if first row looks like a header (has electrode names)
-        electrode_count = sum(
-            1 for c in first_row for pat in _ELECTRODE_PATTERNS if c in pat
-        )
+        electrode_count = sum(1 for c in first_row for pat in _ELECTRODE_PATTERNS if c in pat)
         has_header = electrode_count >= self._MIN_ELECTRODE_COLS
 
         header: list[str] = []
@@ -132,12 +126,6 @@ class BioTacAdapter:
             data_rows = rows[1:]
         else:
             # No header — assume: E1..E19, PDC, PAC, TDC, TAC
-            # Check if first column looks like a timestamp (numeric with decimal)
-            try:
-                float(rows[0][0])
-                has_timestamp = "." in rows[0][0] or len(rows) > 1
-            except (ValueError, IndexError):
-                has_timestamp = False
             data_rows = rows
 
         # --- Parse numeric data ---
@@ -168,8 +156,7 @@ class BioTacAdapter:
         n_cols = array.shape[1]
         if n_cols < 10:
             raise ValueError(
-                f"Expected at least 10 sensor channels, got {n_cols}. "
-                f"File: {path}"
+                f"Expected at least 10 sensor channels, got {n_cols}. " f"File: {path}"
             )
 
         # Build sensor metadata

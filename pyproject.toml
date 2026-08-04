@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "haptix"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tactile data infrastructure: unified format, dataset tools, and ML pipeline integration"
 readme = "README.md"
 license = "MIT"
@@ -29,7 +29,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-torch = ["torch>=2.0"]
+torch = [
+    "torch>=2.0",
+    # torch <2.4 wheels were built against numpy 1.x; numpy 2.x breaks
+    # torch.from_numpy with "Numpy is not available" RuntimeError on py3.10/3.11
+    "numpy<2.0; python_version < '3.12'",
+]
 jax = ["jax>=0.4"]
 all = ["haptix[torch,jax]", "h5py>=3.0", "zarr>=2.0"]
 dev = ["haptix[all]", "pytest>=7.0", "pytest-cov", "black", "ruff", "mypy"]

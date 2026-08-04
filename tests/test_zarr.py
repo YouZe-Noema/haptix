@@ -236,7 +236,12 @@ class TestZarrErrors:
         try:
             empty_path = tmp / "empty.hapt.zarr"
             store = zarr.storage.ZipStore(str(empty_path), mode="w")
-            store.close()
+            try:
+                store.close()
+            except AttributeError:
+                # zarr <3.3: close() on a never-opened empty store references an
+                # unset _lock attribute. The store is empty either way.
+                pass
             # Empty ZipStore produces no file
 
             with pytest.raises(FileNotFoundError):

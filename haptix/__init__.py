@@ -13,7 +13,7 @@ from haptix.io import load, save
 from haptix.sensors import get_sensor, list_sensors
 from haptix.unified import SharedForceEncoder, UnifiedEncoder
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "HaptData",
     "Provenance",

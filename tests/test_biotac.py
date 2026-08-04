@@ -62,6 +62,7 @@ def biotac_csv_no_header() -> Path:
 def biotac_csv_with_timestamp(biotac_csv: Path) -> Path:
     """BioTac CSV with a timestamp column in position 0."""
     import csv
+
     tmp = biotac_csv.parent
 
     # Read existing data, prepend timestamp

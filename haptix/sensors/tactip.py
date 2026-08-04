@@ -58,7 +58,7 @@ class TacTipAdapter:
                 # TacTip CSV typically has pin_0_x, pin_0_y, pin_1_x, pin_1_y...
                 pin_cols = sum(1 for c in cols if "pin" in c)
                 return pin_cols >= 10  # TacTip has 100+ pins typically
-            except Exception:
+            except (OSError, UnicodeDecodeError, AttributeError):
                 return False
         return False
 
@@ -171,7 +171,6 @@ class TacTipAdapter:
                 f = np.array(pil_img)
                 if f.ndim == 2:
                     f = f[:, :, np.newaxis]
-            if f.shape != ref_shape:
                 # Channel mismatch
                 if f.shape[2] != ref_shape[2]:
                     if ref_shape[2] == 1 and f.shape[2] == 3:
@@ -197,7 +196,7 @@ class TacTipAdapter:
 
         # Check if first row is a header
         first_row = [c.strip().lower() for c in rows[0]]
-        pin_cols = sum(1 for c in first_row if "pin" in c or c.startswith("x_") or c.startswith("y_"))
+        pin_cols = sum(1 for c in first_row if "pin" in c or c.startswith(("x_", "y_")))
         has_header = pin_cols >= 10
 
         data_rows = rows[1:] if has_header else rows

@@ -16,10 +16,10 @@ Quick Start
 >>> embedding.array.shape  # (T, 128)
 """
 
-from haptix.unified.encoder import SharedForceEncoder, UnifiedEncoder, _ENCODER_VERSION
+from haptix.unified.encoder import _ENCODER_VERSION, SharedForceEncoder, UnifiedEncoder
 
 __all__ = [
+    "_ENCODER_VERSION",
     "SharedForceEncoder",
     "UnifiedEncoder",
-    "_ENCODER_VERSION",
 ]
