@@ -2,9 +2,11 @@
 
 Tests cover: encoder instantiation, determinism, imaging and dynamic
 modality encoding, embedding shape consistency, metadata correctness,
-supported sensors listing, cross-sensor consistency, and round-trip.
+supported sensors listing, cross-sensor consistency, round-trip, and
+the trained CrossModalEncoder (fit, alignment, save/load).
 """
 
+import hashlib
 import numpy as np
 import pytest
 
@@ -16,7 +18,13 @@ from haptix.core import (
     SensorMeta,
 )
 from haptix.io import load, save
-from haptix.unified import _ENCODER_VERSION, SharedForceEncoder, UnifiedEncoder
+from haptix.unified import (
+    _CROSS_MODAL_VERSION,
+    _ENCODER_VERSION,
+    CrossModalEncoder,
+    SharedForceEncoder,
+    UnifiedEncoder,
+)
 from haptix.unified.encoder import _pad_to_dim, _resize_image_embedding
 
 
@@ -367,3 +375,256 @@ class TestHelperFunctions:
         result = _pad_to_dim(arr, 20)
         assert result.shape == (1, 20)
         np.testing.assert_array_equal(result[0, :10], np.ones(10))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Trained CrossModalEncoder
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _make_material_records(
+    materials: list[str],
+    trials: int = 3,
+    frames: int = 4,
+    h: int = 32,
+    w: int = 32,
+    seed: int = 0,
+) -> list[HaptData]:
+    """Build paired imaging + dynamic records per material (labeled).
+
+    Imaging records look like GelSight frames with a material-specific tint;
+    dynamic records look like Coro taxel arrays with a material-specific
+    offset. Same material → same label in both modalities.
+    """
+    rng = np.random.RandomState(seed)
+    records: list[HaptData] = []
+
+    def _material_seed(material: str) -> int:
+        # ONE shared seed per material (stable across calls/seeds).
+        # Both modalities derive their signature from this same value, so
+        # the cross-modal distance structure is consistent — the assumption
+        # behind any cross-sensor alignment (same object → same position
+        # in the shared space).
+        return int(hashlib.sha256(material.encode()).hexdigest(), 16)
+
+    for material in materials:
+        seed_m = _material_seed(material)
+        # Directional imaging signature: per-material RGB color. Different
+        # materials get different color DIRECTIONS (not just brightness).
+        color = np.array(
+            [(seed_m >> 0) % 256, (seed_m >> 8) % 256, (seed_m >> 16) % 256],
+            dtype=np.float64,
+        )
+        # Directional dynamic signature: per-material 29-dim offset vector.
+        dyn_offset = np.array(
+            [50.0 + ((seed_m >> (8 * (k % 8))) % 200) for k in range(29)],
+            dtype=np.float64,
+        )
+        for trial in range(trials):
+            # Imaging record: [T, H, W, 3] with material-specific color
+            base = np.zeros((h, w, 3), dtype=np.float64)
+            base[..., 0] = color[0]
+            base[..., 1] = color[1]
+            base[..., 2] = color[2]
+            noise = rng.randint(0, 20, (frames, h, w, 3)).astype(np.float64)
+            img = np.clip(base[np.newaxis, ...] + noise, 0, 255).astype(np.uint8)
+            records.append(
+                HaptData(
+                    raw=RawData(
+                        array=img,
+                        checksum=RawData.compute_checksum(img),
+                        dtype=str(img.dtype),
+                        shape=img.shape,
+                    ),
+                    sensor=SensorMeta(type="GelSight", serial=f"gs-{material}-{trial}"),
+                    modality="imaging",
+                    sampling_rate_hz=30.0,
+                    interaction=InteractionMeta(type="pressing", normal_force_N=2.0),
+                    labels=Labels(material=material, material_category=material),
+                )
+            )
+            # Dynamic record: [T, 29] Coro-style taxel readings with a
+            # material-specific per-column offset vector (full-rank).
+            offsets = np.broadcast_to(dyn_offset, (frames, 29)).copy()
+            dyn = offsets + rng.randn(frames, 29).astype(np.float64) * 2.0
+            dyn = dyn.astype(np.float32)
+            records.append(
+                HaptData(
+                    raw=RawData(
+                        array=dyn,
+                        checksum=RawData.compute_checksum(dyn),
+                        dtype=str(dyn.dtype),
+                        shape=dyn.shape,
+                    ),
+                    sensor=SensorMeta(type="CoroCapacitive", serial=f"coro-{material}-{trial}"),
+                    modality="dynamic",
+                    sampling_rate_hz=30.0,
+                    interaction=InteractionMeta(type="pressing", normal_force_N=3.0),
+                    labels=Labels(material=material, material_category=material),
+                )
+            )
+    return records
+
+
+class TestCrossModalEncoderFit:
+    def test_version(self):
+        assert CrossModalEncoder().version == _CROSS_MODAL_VERSION
+
+    def test_implements_protocol(self):
+        assert isinstance(CrossModalEncoder(embedding_dim=64), UnifiedEncoder)
+
+    def test_unfitted_encode_raises(self):
+        enc = CrossModalEncoder()
+        with pytest.raises(ValueError, match="not fitted"):
+            enc.encode(_make_imaging_hapt())
+
+    def test_fit_requires_records(self):
+        with pytest.raises(ValueError, match="at least one"):
+            CrossModalEncoder().fit([])
+
+    def test_fit_requires_both_modalities(self):
+        only_imaging = [_make_imaging_hapt() for _ in range(3)]
+        with pytest.raises(ValueError, match="imaging record AND one dynamic"):
+            CrossModalEncoder().fit(only_imaging)
+
+    def test_fit_returns_self(self):
+        enc = CrossModalEncoder(embedding_dim=16)
+        records = _make_material_records(["a", "b", "c"])
+        assert enc.fit(records) is enc
+        assert enc._fitted is True
+
+    def test_embedding_shape(self):
+        enc = CrossModalEncoder(embedding_dim=16)
+        records = _make_material_records(["a", "b", "c"], trials=3, frames=4)
+        enc.fit(records)
+        img = enc.encode(_make_imaging_hapt(num_frames=4, h=32, w=32, c=3))
+        dyn = enc.encode(_make_dynamic_hapt(num_frames=4, features=29))
+        assert img.array.shape == (4, 16)
+        assert dyn.array.shape == (4, 16)
+
+    def test_deterministic(self):
+        records = _make_material_records(["a", "b", "c"], trials=3)
+        e1 = CrossModalEncoder(embedding_dim=16).fit(records)
+        e2 = CrossModalEncoder(embedding_dim=16).fit(records)
+        np.testing.assert_array_equal(
+            e1.encode(_make_imaging_hapt()).array,
+            e2.encode(_make_imaging_hapt()).array,
+        )
+        np.testing.assert_array_equal(
+            e1.encode(_make_dynamic_hapt()).array,
+            e2.encode(_make_dynamic_hapt()).array,
+        )
+
+    def test_same_label_clusters_across_modalities(self):
+        """After training, same-material embeddings are closer than
+        different-material embeddings — the core cross-sensor property."""
+        enc = CrossModalEncoder(embedding_dim=16)
+        materials = ["metal", "plastic", "wood"]
+        records = _make_material_records(materials, trials=4, frames=3)
+        enc.fit(records)
+
+        def embed(rec) -> np.ndarray:
+            return enc.encode(rec).array.mean(axis=0)
+
+        # One held-out record per material per modality
+        img_vecs = {
+            m: embed(_make_material_records([m], trials=1, frames=3, seed=99 + i)[0])
+            for i, m in enumerate(materials)
+        }
+        dyn_vecs = {
+            m: embed(_make_material_records([m], trials=1, frames=3, seed=7 + i)[1])
+            for i, m in enumerate(materials)
+        }
+
+        # For each material, its imaging embedding should be closest to its
+        # own dynamic embedding (in the shared space), not another material's.
+        for m in materials:
+            d_same = np.linalg.norm(img_vecs[m] - dyn_vecs[m])
+            d_other = min(np.linalg.norm(img_vecs[m] - dyn_vecs[o]) for o in materials if o != m)
+            assert d_same < d_other, f"material {m}: same={d_same:.4f} other={d_other:.4f}"
+
+    def test_method_tag_versioned(self):
+        enc = CrossModalEncoder(embedding_dim=16).fit(_make_material_records(["a", "b"]))
+        img = enc.encode(_make_imaging_hapt())
+        assert _CROSS_MODAL_VERSION in img.method
+        assert "GelSight" in img.method
+        dyn = enc.encode(_make_dynamic_hapt())
+        assert "CoroCapacitive" in dyn.method
+
+    def test_checksum_valid(self):
+        enc = CrossModalEncoder(embedding_dim=16).fit(_make_material_records(["a", "b", "c"]))
+        u = enc.encode(_make_imaging_hapt())
+        assert hashlib.sha256(u.array.tobytes()).hexdigest() == u.checksum
+
+    def test_works_with_unknown_sensor(self):
+        enc = CrossModalEncoder(embedding_dim=16).fit(_make_material_records(["a", "b"]))
+        data = _make_dynamic_hapt(num_frames=3, features=29, sensor_type="CustomSensor")
+        # Unknown sensor defaults to dynamic path (modality=dynamic)
+        result = enc.encode(data)
+        assert result.array.shape == (3, 16)
+
+    def test_unified_data_round_trip(self, tmp_path):
+        """Trained encoder output survives .hapt save/load like surrogate."""
+        enc = CrossModalEncoder(embedding_dim=16).fit(_make_material_records(["a", "b"]))
+        data = _make_imaging_hapt(num_frames=3, h=32, w=32, c=3)
+        unified = enc.encode(data)
+        data_with_unified = HaptData(
+            raw=data.raw,
+            sensor=data.sensor,
+            modality=data.modality,
+            sampling_rate_hz=data.sampling_rate_hz,
+            interaction=data.interaction,
+            labels=data.labels,
+            unified=unified,
+        )
+        path = tmp_path / "crossmodal.hapt"
+        save(data_with_unified, path)
+        reloaded = load(path)
+        assert reloaded.unified is not None
+        np.testing.assert_array_equal(reloaded.unified.array, unified.array)
+
+
+class TestCrossModalEncoderSerialization:
+    def test_save_load_round_trip(self, tmp_path):
+        records = _make_material_records(["a", "b", "c"], trials=3)
+        enc = CrossModalEncoder(embedding_dim=16).fit(records)
+        path = tmp_path / "encoder.npz"
+        enc.save(path)
+        assert path.exists()
+
+        loaded = CrossModalEncoder.load(path)
+        assert loaded.version == enc.version
+        assert loaded.embedding_dim == enc.embedding_dim
+        assert loaded._classes == enc._classes
+        assert loaded._n_records == enc._n_records
+
+        # Same encoding after reload
+        np.testing.assert_array_equal(
+            loaded.encode(_make_imaging_hapt()).array,
+            enc.encode(_make_imaging_hapt()).array,
+        )
+        np.testing.assert_array_equal(
+            loaded.encode(_make_dynamic_hapt()).array,
+            enc.encode(_make_dynamic_hapt()).array,
+        )
+
+    def test_save_unfitted_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="unfitted"):
+            CrossModalEncoder().save(tmp_path / "x.npz")
+
+    def test_load_metadata_round_trip(self, tmp_path):
+        records = _make_material_records(["metal", "plastic"], trials=2)
+        enc = CrossModalEncoder(embedding_dim=8).fit(records)
+        path = tmp_path / "enc.npz"
+        enc.save(path)
+        loaded = CrossModalEncoder.load(path)
+        import json
+
+        with np.load(path, allow_pickle=False) as z:
+            meta = json.loads(z["metadata"].tobytes().decode("utf-8"))
+        assert meta["version"] == _CROSS_MODAL_VERSION
+        assert meta["embedding_dim"] == 8
+        assert meta["classes"] == ["metal", "plastic"]
+        # 2 materials × 2 trials × 2 modalities (imaging + dynamic)
+        assert meta["n_records"] == 8
+        assert loaded._classes == ["metal", "plastic"]
