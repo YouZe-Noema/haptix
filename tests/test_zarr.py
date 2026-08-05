@@ -22,7 +22,7 @@ from haptix.core import (
     Source,
     UnifiedData,
 )
-from haptix.io import ChecksumError, HaptFormatError, load, save
+from haptix.io import ChecksumError, HaptFormatError, _zarr_create_array, _zarr_group, load, save
 
 
 def make_test_data(
@@ -204,7 +204,7 @@ class TestZarrChecksum:
 
             # Corrupt: tamper with the stored checksum in raw/data attrs
             store = zarr.storage.ZipStore(str(saved), mode="a")
-            root = zarr.group(store=store, zarr_format=2)
+            root = _zarr_group(zarr, store)
             raw_arr = root["raw/data"]
             raw_arr.attrs["checksum"] = (
                 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -254,8 +254,8 @@ class TestZarrErrors:
         tmp = Path(tempfile.mkdtemp())
         try:
             store = zarr.storage.ZipStore(str(tmp / "nomanifest.hapt.zarr"), mode="w")
-            root = zarr.group(store=store, zarr_format=2)
-            root.zeros(name="raw/data", shape=(5,), dtype=np.float64, zarr_format=2)
+            root = _zarr_group(zarr, store)
+            _zarr_create_array(root, "raw/data", (5,), np.float64, (5,), None)
             # Deliberately skip manifest
             store.close()
 

@@ -56,6 +56,45 @@ def _ensure_zarr():
     return _zarr, _numcodecs
 
 
+def _zarr_major_version(zarr) -> int:
+    """Return the major version of the installed zarr package (2, 3, ...)."""
+    return int(zarr.__version__.split(".")[0])
+
+
+def _zarr_group(zarr, store):
+    """Create a group, compatible with both zarr 2.x and 3.x.
+
+    zarr 2.x only knows format 2 and rejects the zarr_format kwarg;
+    zarr 3.x defaults to format 3, so we pin zarr_format=2 there for
+    compressor compatibility (Blosc/Zstd works with format 2)."""
+    if _zarr_major_version(zarr) >= 3:
+        return zarr.group(store=store, zarr_format=2)
+    return zarr.group(store=store)
+
+
+def _zarr_create_array(root, name, shape, dtype, chunks, compressor):
+    """Create a chunked array, compatible with both zarr 2.x and 3.x.
+
+    zarr 2.x rejects the zarr_format kwarg; 3.x needs it to stay on
+    format 2 (matching the group created by _zarr_group)."""
+    if _zarr_major_version(_zarr) >= 3:
+        return root.zeros(
+            name=name,
+            shape=shape,
+            dtype=dtype,
+            chunks=chunks,
+            compressor=compressor,
+            zarr_format=2,
+        )
+    return root.zeros(
+        name=name,
+        shape=shape,
+        dtype=dtype,
+        chunks=chunks,
+        compressor=compressor,
+    )
+
+
 class ChecksumError(ValueError):
     """Raised when checksum verification fails."""
 
@@ -340,17 +379,12 @@ def _save_zarr(data: HaptData, path: Path) -> Path:
 
     compressor = numcodecs.Blosc(cname="zstd", clevel=3, shuffle=numcodecs.Blosc.SHUFFLE)
     store = zarr.storage.ZipStore(str(path), mode="w")
-    root = zarr.group(store=store, zarr_format=2)
+    root = _zarr_group(zarr, store)
 
-    # Store raw data (zarr 3.x: name is keyword-only, zarr_format=2 for compressor compat)
+    # Store raw data
     raw_chunks = _chunk_shape(data.raw.array.shape)
-    raw_arr = root.zeros(
-        name="raw/data",
-        shape=data.raw.array.shape,
-        dtype=data.raw.array.dtype,
-        chunks=raw_chunks,
-        compressor=compressor,
-        zarr_format=2,
+    raw_arr = _zarr_create_array(
+        root, "raw/data", data.raw.array.shape, data.raw.array.dtype, raw_chunks, compressor
     )
     raw_arr[:] = data.raw.array
 
@@ -373,13 +407,13 @@ def _save_zarr(data: HaptData, path: Path) -> Path:
     # Optional unified
     if data.unified is not None:
         unified_chunks = _chunk_shape(data.unified.array.shape)
-        unified_arr = root.zeros(
-            name="unified/data",
-            shape=data.unified.array.shape,
-            dtype=data.unified.array.dtype,
-            chunks=unified_chunks,
-            compressor=compressor,
-            zarr_format=2,
+        unified_arr = _zarr_create_array(
+            root,
+            "unified/data",
+            data.unified.array.shape,
+            data.unified.array.dtype,
+            unified_chunks,
+            compressor,
         )
         unified_arr[:] = data.unified.array
         unified_arr.attrs["checksum"] = data.unified.checksum
@@ -402,7 +436,13 @@ def _load_zarr(path: Path) -> HaptData:
 
     # zarr 3.x: read-only ZipStore needs open_group(mode="r")
     store = zarr.storage.ZipStore(str(path), mode="r")
-    root = zarr.open_group(store=store, mode="r")
+    try:
+        root = zarr.open_group(store=store, mode="r")
+    except zarr.errors.GroupNotFoundError:
+        # zarr 2.x raises GroupNotFoundError for an empty store;
+        # zarr 3.x raises FileNotFoundError. Normalize to FileNotFoundError.
+        store.close()
+        raise FileNotFoundError(f"Not a valid .hapt path: {path}") from None
 
     # Validate required structures
     if "raw/data" not in root:
