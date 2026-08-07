@@ -158,7 +158,7 @@ Python 3.10+ required.
 - [x] Real sensor validation — Coro + GelSight validated with real data. DIGIT structurally identical.
 - [x] PyPI publication — haptix 0.2.0 live on PyPI (2026-08-03), verified fresh-venv install + round-trip
 - [x] BioTac SP, TacTip adapters
-- [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (5s on CPU)
+- [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (~12s on CPU)
 - [x] Zarr+Zstd compression mode (`.hapt.zarr`)
 - [x] ZIP archive mode (`.hapt.zip`) — single-file stdlib archive, no extra deps
 - [ ] Hosted dataset catalog with provenance + checksum linking
