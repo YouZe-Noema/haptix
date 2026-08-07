@@ -43,7 +43,7 @@ _DEFAULT_EMBEDDING_DIM = 128
 _ENCODER_VERSION = "unified/shared-force/v0.1"
 
 # Cross-modal (trained) encoder version.
-_CROSS_MODAL_VERSION = "unified/cross-modal/v0.1"
+_CROSS_MODAL_VERSION = "unified/cross-modal/v0.2"
 
 
 @runtime_checkable
@@ -248,7 +248,7 @@ def _safe_svd_components(matrix: np.ndarray, n_components: int) -> np.ndarray:
     than embedding dims): SVD returns at most min(shape) vectors, the rest
     are zero columns so the shared space keeps a fixed [T, D] shape.
     """
-    U, S, Vt = np.linalg.svd(matrix, full_matrices=False)
+    _, S, Vt = np.linalg.svd(matrix, full_matrices=False)
     rank = int((S > 1e-12).sum())
     k = min(n_components, rank, Vt.shape[0])
     out = np.zeros((matrix.shape[1], n_components), dtype=np.float64)
@@ -257,20 +257,67 @@ def _safe_svd_components(matrix: np.ndarray, n_components: int) -> np.ndarray:
     return out
 
 
-def _orthogonal_procrustes(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-    """Orthogonal Procrustes: rotation R minimizing ||A @ R - B||_F.
+def _inv_sqrt_psd(matrix: np.ndarray, reg: float = 1e-6) -> np.ndarray:
+    """Matrix^{-1/2} for a symmetric PSD matrix via eigendecomposition.
 
-    Returns an (D, D) orthogonal matrix. A and B must share the same number
-    of columns (whitened centroids). Uses SVD: R = U V^T where U S V^T = B^T A.
+    Adds ``reg`` to the diagonal before inverting so near-singular
+    covariance matrices (few classes → low rank) stay numerically stable.
+    Eigenvalues are clamped to a positive floor.
     """
-    M = B.T @ A
-    U, _, Vt = np.linalg.svd(M, full_matrices=False)
-    R = U @ Vt
-    # Ensure a proper rotation (det = +1) for numerical stability.
-    if np.linalg.det(R) < 0:
-        Vt[-1, :] *= -1
-        R = U @ Vt
-    return R
+    n = matrix.shape[0]
+    mat = (matrix + matrix.T) / 2.0 + reg * np.eye(n)
+    w, V = np.linalg.eigh(mat)
+    w = np.clip(w, 1e-10, None)
+    return (V / np.sqrt(w)) @ V.T
+
+
+def _cca_projections(
+    A: np.ndarray, B: np.ndarray, n_components: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Canonical correlation analysis between two paired sample matrices.
+
+    Parameters
+    ----------
+    A : (K, D_a) centered samples (e.g. imaging class centroids)
+    B : (K, D_b) centered samples (e.g. dynamic class centroids)
+    n_components : int
+        Maximum number of canonical directions to return.
+
+    Returns
+    -------
+    W_a : (D_a, d) projection for A
+    W_b : (D_b, d) projection for B
+    corrs : (d,) canonical correlations, in decreasing order
+
+    Both projections map into a shared space where paired samples are
+    maximally correlated; directions are weighted by their canonical
+    correlation so weakly-aligned directions contribute less.
+    """
+    D_a, D_b = A.shape[1], B.shape[1]
+    S_aa = A.T @ A
+    S_bb = B.T @ B
+    S_ab = A.T @ B
+
+    Wa_inv = _inv_sqrt_psd(S_aa)
+    Wb_inv = _inv_sqrt_psd(S_bb)
+    K = Wa_inv @ S_ab @ Wb_inv
+    U, corrs, Vt = np.linalg.svd(K)
+
+    d = min(n_components, len(corrs))
+    W_a = (Wa_inv @ U[:, :d]).T  # (d, D_a)
+    W_b = (Wb_inv @ Vt[:d].T).T  # (d, D_b)
+    # Weight each canonical direction by its correlation.
+    W_a = W_a * corrs[:d, None]
+    W_b = W_b * corrs[:d, None]
+
+    # Zero-pad to exactly n_components rows so output stays [T, D].
+    if d < n_components:
+        pad_a = np.zeros((n_components - d, D_a), dtype=np.float64)
+        pad_b = np.zeros((n_components - d, D_b), dtype=np.float64)
+        W_a = np.concatenate([W_a, pad_a], axis=0)
+        W_b = np.concatenate([W_b, pad_b], axis=0)
+
+    return W_a, W_b, corrs[:d]
 
 
 def _l2_normalize_rows(arr: np.ndarray) -> np.ndarray:
@@ -295,11 +342,14 @@ class CrossModalEncoder:
     Training procedure (pure numpy, no sklearn):
       1. Per modality, extract feature vectors (imaging → spatial resize,
          dynamic → padded columns), mean-pooled over time per record.
-      2. Per modality, whiten with PCA to the shared embedding dim.
-      3. For labels present in BOTH modalities, compute class centroids in
-         whitened space and align them with an orthogonal Procrustes
-         rotation (dynamic space rotated onto imaging space).
-      4. Store mean, whitening projection, and rotation as "weights".
+      2. Per modality, compute class centroids in raw feature space for
+         labels present in BOTH modalities.
+      3. Run canonical correlation analysis (CCA) on the two centered
+         centroid matrices: the resulting projections map each modality
+         into a shared space where same-label centroids are maximally
+         correlated. Directions are weighted by their canonical
+         correlation, so weakly-aligned structure contributes less.
+      4. Store mean, CCA projections as "weights".
 
     The resulting encoder is deterministic and serializable via
     :meth:`save` / :meth:`load`, so it can be pre-trained on one dataset
@@ -339,6 +389,23 @@ class CrossModalEncoder:
         self._classes: list[str] = []
         self._n_records: int = 0
 
+    # ── Introspection ────────────────────────────────────────────────────
+
+    @property
+    def fitted(self) -> bool:
+        """Whether fit()/load() has populated trained weights."""
+        return self._fitted
+
+    @property
+    def classes(self) -> list[str]:
+        """Labels present in BOTH modalities used for centroid alignment."""
+        return list(self._classes)
+
+    @property
+    def n_records(self) -> int:
+        """Number of HaptData records the encoder was trained on."""
+        return self._n_records
+
     # ── Training ─────────────────────────────────────────────────────────
 
     def fit(self, records: list[HaptData], label_key: str = "material") -> "CrossModalEncoder":
@@ -368,11 +435,7 @@ class CrossModalEncoder:
         dyn_labels: list[str] = []
 
         for rec in records:
-            label = getattr(rec.labels, label_key) if rec.labels else None
-            if label is None:
-                label = getattr(rec.labels, "object_name") if rec.labels else None
-            if label is None:
-                label = "unknown"
+            label = self._record_label(rec, label_key)
             arr = rec.raw.array.astype(np.float64)
             if self._is_imaging(rec):
                 img_feats.append(self._extract_imaging_flat(arr).mean(axis=0))
@@ -390,37 +453,45 @@ class CrossModalEncoder:
         X_img = np.stack(img_feats)  # (n_img, D_img)
         X_dyn = np.stack(dyn_feats)  # (n_dyn, D_dyn)
 
-        # 1. Per-modality whitening (PCA) to shared dim.
+        # 1. Per-modality means (centering).
         self._mean_img = X_img.mean(axis=0)
-        self._W_img = _safe_svd_components(X_img - self._mean_img, self.embedding_dim)
         self._mean_dyn = X_dyn.mean(axis=0)
-        self._W_dyn = _safe_svd_components(X_dyn - self._mean_dyn, self.embedding_dim)
 
-        # 2. Per-record embeddings in the shared space, L2-normalized per
-        #    record so both modalities have comparable magnitude (rotation
-        #    preserves norm, so alignment only works on unit vectors).
-        img_emb = _l2_normalize_rows((X_img - self._mean_img) @ self._W_img)
-        dyn_emb = _l2_normalize_rows((X_dyn - self._mean_dyn) @ self._W_dyn)
-
-        # 3. Class centroids in shared space, for labels in BOTH modalities.
+        # 2. Class centroids in RAW feature space, for labels in BOTH
+        #    modalities. CCA aligns the two centroid sets directly — no
+        #    unsupervised whitening that could discard class structure.
         img_centroids: dict[str, np.ndarray] = {}
         dyn_centroids: dict[str, np.ndarray] = {}
         for label in set(img_labels) & set(dyn_labels):
             idx_img = [i for i, lab in enumerate(img_labels) if lab == label]
             idx_dyn = [i for i, lab in enumerate(dyn_labels) if lab == label]
-            img_centroids[label] = img_emb[idx_img].mean(axis=0)
-            dyn_centroids[label] = dyn_emb[idx_dyn].mean(axis=0)
+            img_centroids[label] = X_img[idx_img].mean(axis=0) - self._mean_img
+            dyn_centroids[label] = X_dyn[idx_dyn].mean(axis=0) - self._mean_dyn
 
         shared_labels = sorted(img_centroids.keys())
         self._classes = shared_labels
 
         if len(shared_labels) >= 2:
+            # 3. CCA between centered class-centroid matrices: finds the
+            #    directions in each modality's feature space that are
+            #    maximally correlated across modalities, so same-label
+            #    records land close in the shared space.
             C_img = np.stack([img_centroids[lab] for lab in shared_labels])
             C_dyn = np.stack([dyn_centroids[lab] for lab in shared_labels])
-            self._R = _orthogonal_procrustes(C_dyn, C_img)
+            W_img, W_dyn, _ = _cca_projections(C_img, C_dyn, self.embedding_dim)
+            # Store as (D, n_components) so encode() uses centered @ W.
+            self._W_img = W_img.T  # (D_img, D)
+            self._W_dyn = W_dyn.T  # (D_dyn, D)
         else:
-            # Fewer than 2 shared classes — nothing to align; identity rotation.
-            self._R = np.eye(self.embedding_dim, dtype=np.float64)
+            # Fewer than 2 shared classes — nothing to align. Fall back to
+            # per-modality PCA whitening so encode() still yields a
+            # fixed-shape embedding.
+            self._W_img = _safe_svd_components(X_img - self._mean_img, self.embedding_dim)
+            self._W_dyn = _safe_svd_components(X_dyn - self._mean_dyn, self.embedding_dim)
+
+        # Rotation is folded into the CCA projections; identity kept for
+        # serialization compatibility.
+        self._R = np.eye(self.embedding_dim, dtype=np.float64)
 
         self._n_records = len(records)
         self._fitted = True
@@ -430,9 +501,8 @@ class CrossModalEncoder:
         """Encode HaptData into the trained shared latent space.
 
         Routes by sensor modality (imaging vs dynamic), applies the learned
-        whitening projection and (for dynamic) the Procrustes alignment,
-        then L2-normalizes each timestep so both modalities live on the
-        same unit sphere (comparable cosine/Euclidean distances).
+        CCA projection, then L2-normalizes each timestep so both modalities
+        live on the same unit sphere (comparable cosine/Euclidean distances).
 
         Returns
         -------
@@ -538,6 +608,23 @@ class CrossModalEncoder:
         return enc
 
     # ── Internals ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _record_label(data: HaptData, label_key: str) -> str:
+        """Extract the grouping label for a record, with fallbacks.
+
+        Prefers ``labels.<label_key>``, then ``object_name``, then
+        ``"unknown"`` so unlabeled records still participate in the
+        per-modality whitening step.
+        """
+        labels = data.labels
+        if labels is not None:
+            primary = getattr(labels, label_key)
+            if primary:
+                return primary
+            if labels.object_name:
+                return labels.object_name
+        return "unknown"
 
     def _is_imaging(self, data: HaptData) -> bool:
         sensor_type = data.sensor.type

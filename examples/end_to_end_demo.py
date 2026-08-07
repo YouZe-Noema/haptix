@@ -77,6 +77,22 @@ class TinyTactileCNN(nn.Module):
         return self.fc(x)
 
 
+def _resize_frame(frame: np.ndarray, image_size: tuple[int, int]) -> np.ndarray:
+    """Resize a single HxW (x C) frame to image_size using PIL (Lanczos)."""
+    from PIL import Image
+
+    h, w = image_size
+    arr = frame
+    if arr.ndim == 2:
+        arr = arr[..., np.newaxis]
+    c = arr.shape[2]
+    if c == 1:
+        pil_img = Image.fromarray(arr[..., 0]).resize((w, h), Image.LANCZOS)
+        return np.array(pil_img)[..., np.newaxis]
+    pil_img = Image.fromarray(arr).resize((w, h), Image.LANCZOS)
+    return np.array(pil_img)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 2. Dataset creation
 # ═══════════════════════════════════════════════════════════════════════════
@@ -161,6 +177,87 @@ def create_synthetic_dataset(
     return saved_paths
 
 
+def create_paired_synthetic_records(
+    trials_per_material: int = 4,
+    frames_per_trial: int = 6,
+) -> list[HaptData]:
+    """Build labeled paired records (imaging + dynamic) per material.
+
+    Each material gets:
+      - an imaging record (GelSight-style, material-specific RGB tint)
+      - a dynamic record (Coro-style 29-taxel array, material-specific
+        pressure signature derived from the SAME per-material seed)
+
+    Same label in both modalities → the CrossModalEncoder learns to align
+    them in a shared space.
+    """
+    import hashlib
+
+    records: list[HaptData] = []
+
+    def material_seed(material: str) -> int:
+        return int(hashlib.sha256(material.encode()).hexdigest(), 16)
+
+    for material in MATERIALS:
+        seed_m = material_seed(material)
+        color = np.array(
+            [(seed_m >> 0) % 256, (seed_m >> 8) % 256, (seed_m >> 16) % 256],
+            dtype=np.float64,
+        )
+        dyn_offset = np.array(
+            [50.0 + ((seed_m >> (8 * (k % 8))) % 200) for k in range(29)],
+            dtype=np.float64,
+        )
+        for trial in range(trials_per_material):
+            rng = np.random.RandomState(seed_m % 2**31 + trial)
+            # Imaging record
+            h, w = 48, 64
+            base = np.zeros((h, w, 3), dtype=np.float64)
+            base[..., 0] = color[0]
+            base[..., 1] = color[1]
+            base[..., 2] = color[2]
+            noise = rng.randint(0, 20, (frames_per_trial, h, w, 3)).astype(np.float64)
+            img = np.clip(base[np.newaxis, ...] + noise, 0, 255).astype(np.uint8)
+            records.append(
+                HaptData(
+                    raw=RawData(
+                        array=img,
+                        checksum=RawData.compute_checksum(img),
+                        dtype=str(img.dtype),
+                        shape=img.shape,
+                    ),
+                    sensor=SensorMeta(type="GelSight_Mini", serial=f"pair-gs-{material}-{trial}"),
+                    modality="imaging",
+                    sampling_rate_hz=30.0,
+                    interaction=InteractionMeta(type="pressing", normal_force_N=2.0),
+                    labels=Labels(material=material, material_category=material),
+                )
+            )
+            # Dynamic record (Coro-style, 29 taxels)
+            offsets = np.broadcast_to(dyn_offset, (frames_per_trial, 29)).copy()
+            dyn = offsets + rng.randn(frames_per_trial, 29).astype(np.float64) * 2.0
+            dyn = dyn.astype(np.float32)
+            records.append(
+                HaptData(
+                    raw=RawData(
+                        array=dyn,
+                        checksum=RawData.compute_checksum(dyn),
+                        dtype=str(dyn.dtype),
+                        shape=dyn.shape,
+                    ),
+                    sensor=SensorMeta(
+                        type="CoroCapacitive",
+                        serial=f"pair-coro-{material}-{trial}",
+                    ),
+                    modality="dynamic",
+                    sampling_rate_hz=30.0,
+                    interaction=InteractionMeta(type="pressing", normal_force_N=3.0),
+                    labels=Labels(material=material, material_category=material),
+                )
+            )
+    return records
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. PyTorch dataset & training utilities
 # ═══════════════════════════════════════════════════════════════════════════
@@ -171,6 +268,10 @@ class MultiHaptDataset(torch.utils.data.Dataset):
 
     Each frame from each .hapt file is a sample. The material label is
     mapped to a consecutive integer (0..N-1) for classification.
+
+    Frames are resized to ``image_size`` at construction time so .hapt
+    files with different native resolutions (e.g. real GelSight 480×640
+    vs synthetic 60×80) can be mixed in one training loop.
     """
 
     def __init__(
@@ -198,7 +299,10 @@ class MultiHaptDataset(torch.utils.data.Dataset):
             label_idx = self._label_map[material]
 
             for i in range(len(frames)):
-                all_frames.append(frames[i])
+                frame = frames[i]
+                if frame.shape[:2] != image_size:
+                    frame = _resize_frame(frame, image_size)
+                all_frames.append(frame)
                 all_labels.append(label_idx)
 
         self._frames = all_frames
@@ -285,6 +389,7 @@ def main() -> None:
 
     # ── Step 1: Load real sensor data (if available) ───────────────────────
     real_data_loaded = False
+    real_hapt_paths: list[Path] = []  # real data persisted as .hapt, joins training
     gelsight_dir = data_root / "research" / "real-data" / "gelsight"
     coro_dir = data_root / "research" / "real-data" / "coro"
 
@@ -294,12 +399,19 @@ def main() -> None:
             real_data = adapter.load(
                 gelsight_dir,
                 interaction=InteractionMeta(type="pressing"),
-                labels=Labels(material="master_chef_can", object_name="002"),
+                labels=Labels(material="can", object_name="master_chef_can"),
             )
             print(f"  ✅ Loaded real GelSight data: {real_data.raw.shape}")
             print(f"     Sensor: {real_data.sensor.type}")
             print(f"     Frames: {real_data.raw.shape[0]}")
             real_data_loaded = True
+
+            # Persist as .hapt and feed into the training loop
+            real_dir = Path(tempfile.mkdtemp(prefix="haptix_real_"))
+            real_path = real_dir / "real_gelsight_can.hapt"
+            haptix.save(real_data, real_path)
+            real_hapt_paths.append(real_path)
+            print(f"     → saved as {real_path.name} (will join training set)")
         except Exception as e:
             print(f"  ⚠️  Real GelSight load failed: {e}")
 
@@ -314,8 +426,12 @@ def main() -> None:
             )
             print(f"  ✅ Loaded real Coro data: {real_coro.raw.shape}")
             real_data_loaded = True
+            real_coro_data = real_coro
         except Exception as e:
             print(f"  ⚠️  Real Coro load failed: {e}")
+            real_coro_data = None
+    else:
+        real_coro_data = None
 
     if not real_data_loaded:
         print("  ℹ️  No real sensor data found — using synthetic only.")
@@ -350,10 +466,16 @@ def main() -> None:
         # ── Step 4: Build PyTorch dataset & DataLoader ─────────────────────
         print()
         print("  Step 3: Building PyTorch DataLoader...")
-        dataset = MultiHaptDataset(hapt_paths)
+        # Mix synthetic + real .hapt files. Real GelSight frames (480×640)
+        # are resized to the CNN input size by MultiHaptDataset.
+        all_paths = hapt_paths + real_hapt_paths
+        dataset = MultiHaptDataset(all_paths)
         class_names = dataset.class_names
         print(f"  Total samples: {len(dataset)}")
         print(f"  Classes: {dataset.class_names}")
+        if real_hapt_paths:
+            n_real = sum(len(haptix.load(p).raw.array) for p in real_hapt_paths)
+            print(f"  Real frames in training set: {n_real} ({n_real / len(dataset):.1%})")
 
         train_size = int(len(dataset) * 0.8)
         test_size = len(dataset) - train_size
@@ -400,20 +522,73 @@ def main() -> None:
 
         t_train_end = time.time()
 
-        # ── Step 6: Cross-sensor unified embedding ──────────────────────────
+        # ── Step 5: Cross-sensor unified embedding ──────────────────────────
         print()
-        print("  Step 5: Cross-sensor unified embedding (SharedForceEncoder)...")
-        from haptix.unified import SharedForceEncoder
+        print("  Step 5: Cross-sensor unified embedding (trained encoder)...")
+        from haptix.unified import CrossModalEncoder, SharedForceEncoder
 
+        # 5a. Untrained surrogate — quick shape / provenance check
         encoder = SharedForceEncoder(embedding_dim=64)
-        print(f"  Encoder version: {encoder.version}")
-        print(f"  Supported sensors: {encoder.supported_sensors()}")
+        print(f"  • SharedForceEncoder {encoder.version}")
+        print(f"    Supported sensors: {encoder.supported_sensors()}")
 
-        # Encode a sample .hapt file into the shared latent space
+        # 5b. TRAINED CrossModalEncoder — fit on paired records
+        print("  • Training CrossModalEncoder on paired records...")
+        paired = create_paired_synthetic_records(trials_per_material=4, frames_per_trial=6)
+        cross = CrossModalEncoder(embedding_dim=64).fit(paired)
+        print(f"    Fitted on {cross.n_records} records, {len(cross.classes)} classes: {cross.classes}")
+        print(f"    Encoder version: {cross.version}")
+
+        # 5c. Verify cross-modal alignment: same material → close in shared space
+        img_rec = next(r for r in paired if r.sensor.type == "GelSight_Mini")
+        dyn_rec = next(
+            r
+            for r in paired
+            if r.sensor.type == "CoroCapacitive" and r.labels.material == img_rec.labels.material
+        )
+        other_rec = next(
+            r
+            for r in paired
+            if r.sensor.type == "CoroCapacitive" and r.labels.material != img_rec.labels.material
+        )
+
+        emb_img = cross.encode(img_rec).array.mean(axis=0)
+        emb_dyn = cross.encode(dyn_rec).array.mean(axis=0)
+        emb_other = cross.encode(other_rec).array.mean(axis=0)
+
+        def _cos(a: np.ndarray, b: np.ndarray) -> float:
+            return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+        sim_same = _cos(emb_img, emb_dyn)
+        sim_other = _cos(emb_img, emb_other)
+        print(f"    Material '{img_rec.labels.material}':")
+        print(f"      cos(img, dyn same material)   = {sim_same:.3f}")
+        print(f"      cos(img, dyn other material)  = {sim_other:.3f}")
+        assert sim_same > sim_other, "Cross-modal alignment failed!"
+        print("    ✅ Cross-modal alignment verified (same > other)")
+
+        # 5d. Encode real sensor data through the trained encoder
+        if real_hapt_paths:
+            real_g = haptix.load(real_hapt_paths[0])
+            u_real = cross.encode(real_g)
+            print(f"    Real GelSight embedded → {u_real.array.shape} ({u_real.method})")
+        if real_coro_data is not None:
+            u_coro = cross.encode(real_coro_data)
+            print(f"    Real Coro embedded → {u_coro.array.shape} ({u_coro.method})")
+
+        # 5e. Serialize trained weights (.npz) + reload — identical embeddings
+        enc_path = tmpdir / "dataset" / "cross_modal_encoder.npz"
+        cross.save(enc_path)
+        reloaded_enc = CrossModalEncoder.load(enc_path)
+        np.testing.assert_array_equal(
+            reloaded_enc.encode(img_rec).array,
+            cross.encode(img_rec).array,
+        )
+        print(f"    ✅ Encoder weights saved → {enc_path.name} and reloaded (identical embeddings)")
+
+        # 5f. Persist trained unified embedding inside the .hapt container
         sample_data = haptix.load(hapt_paths[0])
-        unified = encoder.encode(sample_data)
-
-        # Create a copy with unified data embedded
+        unified = cross.encode(sample_data)
         sample_with_unified = HaptData(
             raw=sample_data.raw,
             sensor=sample_data.sensor,
@@ -423,8 +598,6 @@ def main() -> None:
             labels=sample_data.labels,
             unified=unified,
         )
-
-        # Save with unified data embedded in the .hapt container
         unified_path = tmpdir / "dataset" / "unified_demo.hapt"
         haptix.save(sample_with_unified, unified_path)
 
@@ -440,9 +613,9 @@ def main() -> None:
         print("     Container path: unified/data.npy + unified/transform.json")
         print("     Round-trip: ✓ (embedding preserved in .hapt container)")
 
-        # ── Step 7: Storage formats — directory, .zarr, .zip ───────────────
+        # ── Step 6: Storage formats — directory, .zarr, .zip ───────────────
         print()
-        print("  Step 7: Storage formats (directory / .hapt.zarr / .hapt.zip)...")
+        print("  Step 6: Storage formats (directory / .hapt.zarr / .hapt.zip)...")
         fmt_dir = tmpdir / "dataset" / "unified_demo.hapt"
         fmt_zarr = tmpdir / "dataset" / "unified_demo.hapt.zarr"
         fmt_zip = tmpdir / "dataset" / "unified_demo.hapt.zip"
@@ -473,9 +646,9 @@ def main() -> None:
         for name, size in sizes.items():
             print(f"     {name:12s} {size:>10,} bytes  ({size / raw_bytes:.2f}x raw)")
 
-        # ── Step 8: Evaluate on test set ───────────────────────────────────
+        # ── Step 7: Evaluate on test set ───────────────────────────────────
         print()
-        print("  Step 6: Evaluating on test set...")
+        print("  Step 7: Evaluating on test set...")
         model.eval()
         test_correct = 0
         test_total = 0

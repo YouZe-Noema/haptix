@@ -7,6 +7,7 @@ the trained CrossModalEncoder (fit, alignment, save/load).
 """
 
 import hashlib
+
 import numpy as np
 import pytest
 
@@ -493,6 +494,19 @@ class TestCrossModalEncoderFit:
         assert enc.fit(records) is enc
         assert enc._fitted is True
 
+    def test_introspection_properties(self):
+        records = _make_material_records(["a", "b", "c"], trials=2)
+        enc = CrossModalEncoder(embedding_dim=16)
+        assert enc.fitted is False
+        assert enc.classes == []
+        assert enc.n_records == 0
+
+        enc.fit(records)
+        assert enc.fitted is True
+        assert enc.classes == ["a", "b", "c"]
+        # 3 materials × 2 trials × 2 modalities (imaging + dynamic)
+        assert enc.n_records == 12
+
     def test_embedding_shape(self):
         enc = CrossModalEncoder(embedding_dim=16)
         records = _make_material_records(["a", "b", "c"], trials=3, frames=4)
@@ -538,6 +552,36 @@ class TestCrossModalEncoderFit:
 
         # For each material, its imaging embedding should be closest to its
         # own dynamic embedding (in the shared space), not another material's.
+        for m in materials:
+            d_same = np.linalg.norm(img_vecs[m] - dyn_vecs[m])
+            d_other = min(np.linalg.norm(img_vecs[m] - dyn_vecs[o]) for o in materials if o != m)
+            assert d_same < d_other, f"material {m}: same={d_same:.4f} other={d_other:.4f}"
+
+    def test_alignment_scales_to_five_materials(self):
+        """Regression: demo config (5 materials, demo-sized frames, dim=64).
+
+        The v0.1 PCA+Procrustes implementation aligned 3 materials but
+        failed on 5 — the demo's exact setup. CCA-based alignment must
+        keep same-label records closest across modalities at demo scale.
+        """
+        enc = CrossModalEncoder(embedding_dim=64)
+        materials = ["metal", "plastic", "fabric", "wood", "rubber"]
+        records = _make_material_records(materials, trials=4, frames=6, h=48, w=64)
+        enc.fit(records)
+
+        def embed(rec) -> np.ndarray:
+            return enc.encode(rec).array.mean(axis=0)
+
+        # Held-out records per material per modality
+        img_vecs = {
+            m: embed(_make_material_records([m], trials=1, frames=6, seed=200 + i, h=48, w=64)[0])
+            for i, m in enumerate(materials)
+        }
+        dyn_vecs = {
+            m: embed(_make_material_records([m], trials=1, frames=6, seed=50 + i, h=48, w=64)[1])
+            for i, m in enumerate(materials)
+        }
+
         for m in materials:
             d_same = np.linalg.norm(img_vecs[m] - dyn_vecs[m])
             d_other = min(np.linalg.norm(img_vecs[m] - dyn_vecs[o]) for o in materials if o != m)

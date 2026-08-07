@@ -1,7 +1,7 @@
 # haptix End-to-End Demo
 
-> **Status:** ✅ Working (tested 2026-08-04)
-> **Runtime:** ~8 seconds on CPU
+> **Status:** ✅ Working (tested 2026-08-06)
+> **Runtime:** ~10 seconds on CPU
 > **Script:** `examples/end_to_end_demo.py`
 > **Package:** haptix 0.2.0 on PyPI — `pip install haptix[torch] torch`
 
@@ -11,7 +11,9 @@ The demo validates the complete haptix pipeline end-to-end:
 
 1. **Real sensor data ingestion** — Loads GelSight frames (80 RGB images,
    480×640) and CoroCapacitive pressure arrays (786 frames, 29 columns) from
-   the `research/real-data/` directory when present.
+   the `research/real-data/` directory when present. Real GelSight frames are
+   persisted as `.hapt` and join the training set (resized to the CNN input
+   size by `MultiHaptDataset`).
 
 2. **.hapt conversion** — Creates synthetic multi-material tactile data
    (5 materials × 5 trials × 12 frames), saves as `.hapt` files, reloads,
@@ -19,7 +21,8 @@ The demo validates the complete haptix pipeline end-to-end:
 
 3. **PyTorch integration** — Converts `.hapt` data into a PyTorch DataLoader
    with batching and shuffling. Each frame becomes a (C, H, W) float32 tensor
-   normalized to [0, 1].
+   normalized to [0, 1]. Real and synthetic `.hapt` files are mixed in one
+   training loop.
 
 4. **Training loop** — A tiny CNN (TinyTactileCNN, ~15K parameters) classifies
    tactile frames by material type (metal/plastic/fabric/wood/rubber) using
@@ -28,9 +31,14 @@ The demo validates the complete haptix pipeline end-to-end:
 5. **Evaluation** — Reports per-epoch loss and accuracy, plus final test set
    accuracy. With synthetic data, converges to ~100% accuracy in 2-3 epochs.
 
-6. **Cross-sensor unified embedding** — The SharedForceEncoder maps the
-   sample into a shared latent space (`unified/` in the container), which
-   survives the round-trip.
+6. **Cross-sensor unified embedding (trained)** — A `CrossModalEncoder` is
+   trained on paired synthetic records (GelSight-style imaging + Coro-style
+   dynamic, same material labels in both). It learns CCA projections that map
+   both modalities into a shared latent space where same-material records are
+   close (cos ≈ 0.99) and different materials are far (cos ≈ −0.17). Real
+   GelSight and Coro data embed through the trained encoder, weights
+   serialize to `.npz` and reload losslessly, and the embedding survives the
+   `.hapt` round-trip inside the `unified/` container path.
 
 7. **Three storage formats** — The same data saves as a directory, a
    `.hapt.zarr` (Zstd-compressed ZipStore), or a `.hapt.zip` (stdlib DEFLATE
