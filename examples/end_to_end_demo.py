@@ -110,6 +110,57 @@ MATERIAL_COLORS = {
 }
 
 
+def _texture_template(material: str, h: int, w: int, seed: int) -> np.ndarray:
+    """Material-specific spatial texture template, shape (H, W, 3), mean ≈ 1.0.
+
+    Tactile imaging sensors (GelSight/DIGIT) measure *surface texture*, so the
+    synthetic frames carry a per-material micro-geometry: brushed streaks for
+    metal, a woven grid for fabric, grain stripes for wood, mottled blobs for
+    rubber, and a smooth speckled finish for plastic. The texture is
+    deterministic per material (same for every trial) while the per-frame
+    noise varies, so a held-out frame is only recognizable by its texture —
+    exactly the generalization a real tactile classifier needs.
+    """
+    rng = np.random.RandomState(seed)
+    if material == "metal":
+        # Brushed metal: faint horizontal streaks.
+        rows = np.sin(np.arange(h)[:, None] * 0.35 + rng.randn(h)[:, None] * 0.5)
+        t = 1.0 + 0.08 * rows
+    elif material == "plastic":
+        # Smooth glossy finish with sparse bright speckles.
+        t = np.ones((h, w))
+        n_speckles = max(1, int(h * w * 0.008))
+        for _ in range(n_speckles):
+            y, x = int(rng.randint(0, h)), int(rng.randint(0, w))
+            r = int(rng.randint(1, 3))
+            t[max(0, y - r) : y + r + 1, max(0, x - r) : x + r + 1] += 0.25
+        t = np.clip(t, 0.9, 1.4)
+    elif material == "fabric":
+        # Woven grid: checkerboard of two thread brightnesses.
+        cell = 4
+        yy = (np.arange(h) // cell) % 2
+        xx = (np.arange(w) // cell) % 2
+        grid = (yy[:, None] ^ xx[None, :]).astype(float) * 0.12
+        t = 1.0 + grid
+    elif material == "wood":
+        # Vertical grain stripes with slight irregularity.
+        cols = np.sin(np.arange(w)[None, :] * 0.25 + rng.randn(w)[None, :] * 0.4)
+        t = 1.0 + 0.10 * cols
+    elif material == "rubber":
+        # Mottled dark blobs (compressed elastomer).
+        t = np.ones((h, w))
+        for _ in range(8):
+            y, x = int(rng.randint(0, h)), int(rng.randint(0, w))
+            r = int(rng.randint(6, 14))
+            yy, xx = np.mgrid[0:h, 0:w]
+            mask = (yy - y) ** 2 + (xx - x) ** 2 < r**2
+            t[mask] += rng.uniform(-0.25, 0.2)
+        t = np.clip(t, 0.6, 1.25)
+    else:
+        t = np.ones((h, w))
+    return np.broadcast_to(t[..., None], (h, w, 3)).copy()
+
+
 def _make_synthetic_frames(
     material: str,
     n_frames: int = 12,
@@ -118,20 +169,25 @@ def _make_synthetic_frames(
     seed: int = 0,
 ) -> np.ndarray:
     """Generate synthetic tactile-like frames with material-specific signatures."""
+    import hashlib
+
     rng = np.random.RandomState(seed)
     r, g, b = MATERIAL_COLORS[material]
+    base = np.stack(
+        [
+            np.full((h, w), r, dtype=np.int16),
+            np.full((h, w), g, dtype=np.int16),
+            np.full((h, w), b, dtype=np.int16),
+        ],
+        axis=-1,
+    )
+    # Texture is deterministic per material (same across trials), noise varies.
+    tex_seed = int(hashlib.sha256(material.encode()).hexdigest(), 16) % (2**31)
+    texture = _texture_template(material, h, w, seed=tex_seed)  # float (H, W, 3)
     frames = np.zeros((n_frames, h, w, 3), dtype=np.uint8)
     for t in range(n_frames):
         noise = (rng.randn(h, w, 3) * 12).astype(np.int16)
-        base = np.stack(
-            [
-                np.full((h, w), r, dtype=np.int16),
-                np.full((h, w), g, dtype=np.int16),
-                np.full((h, w), b, dtype=np.int16),
-            ],
-            axis=-1,
-        )
-        frame = np.clip(base + noise, 0, 255).astype(np.uint8)
+        frame = np.clip(base.astype(np.float64) * texture + noise, 0, 255).astype(np.uint8)
         frames[t] = frame
     return frames
 
@@ -210,14 +266,15 @@ def create_paired_synthetic_records(
         )
         for trial in range(trials_per_material):
             rng = np.random.RandomState(seed_m % 2**31 + trial)
-            # Imaging record
+            # Imaging record (same per-material texture as the main demo data)
             h, w = 48, 64
             base = np.zeros((h, w, 3), dtype=np.float64)
             base[..., 0] = color[0]
             base[..., 1] = color[1]
             base[..., 2] = color[2]
+            tex = _texture_template(material, h, w, seed=seed_m % 2**31)
             noise = rng.randint(0, 20, (frames_per_trial, h, w, 3)).astype(np.float64)
-            img = np.clip(base[np.newaxis, ...] + noise, 0, 255).astype(np.uint8)
+            img = np.clip(base * tex + noise, 0, 255).astype(np.uint8)
             records.append(
                 HaptData(
                     raw=RawData(
@@ -504,6 +561,8 @@ def main() -> None:
         print()
         print("  Step 4: Training TinyTactileCNN classifier...")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # Deterministic run-to-run: seed model init, BN shuffling, dropout.
+        torch.manual_seed(0)
         model = TinyTactileCNN(in_channels=3, num_classes=dataset.num_classes)
         model.to(device)
         optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -516,7 +575,7 @@ def main() -> None:
         )
 
         t_train_start = time.time()
-        for epoch in range(5):
+        for epoch in range(8):
             train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, device)
             print(f"  Epoch {epoch + 1:2d}:  loss={train_loss:.4f}  train_acc={train_acc:.2%}")
 
@@ -673,7 +732,7 @@ def main() -> None:
     print("=" * 68)
     print("  Pipeline:   sensor data → .hapt → round-trip ✓ → DataLoader → CNN")
     print(f"  Classes:    {class_names}")
-    print(f"  Train acc:  {train_acc:.2%} (epoch 5)")
+    print(f"  Train acc:  {train_acc:.2%} (final epoch)")
     print(f"  Test acc:   {test_acc:.2%}")
     print(f"  Train time: {t_train_end - t_train_start:.1f}s")
     print(f"  Total time: {t_end - t_start:.1f}s")

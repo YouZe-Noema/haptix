@@ -1,7 +1,7 @@
 # haptix End-to-End Demo
 
-> **Status:** ✅ Working (tested 2026-08-06)
-> **Runtime:** ~10 seconds on CPU
+> **Status:** ✅ Working (tested 2026-08-07)
+> **Runtime:** ~12 seconds on CPU
 > **Script:** `examples/end_to_end_demo.py`
 > **Package:** haptix 0.2.0 on PyPI — `pip install haptix[torch] torch`
 
@@ -17,7 +17,12 @@ The demo validates the complete haptix pipeline end-to-end:
 
 2. **.hapt conversion** — Creates synthetic multi-material tactile data
    (5 materials × 5 trials × 12 frames), saves as `.hapt` files, reloads,
-   and verifies checksum integrity.
+   and verifies checksum integrity. Synthetic frames carry **per-material
+   micro-texture** (brushed streaks for metal, woven grid for fabric, grain
+   stripes for wood, mottled blobs for rubber, speckled finish for plastic)
+   plus per-frame noise — the texture is fixed per material so held-out
+   frames are only recognizable by their surface pattern, the same signal a
+   real GelSight measures.
 
 3. **PyTorch integration** — Converts `.hapt` data into a PyTorch DataLoader
    with batching and shuffling. Each frame becomes a (C, H, W) float32 tensor
@@ -25,11 +30,13 @@ The demo validates the complete haptix pipeline end-to-end:
    training loop.
 
 4. **Training loop** — A tiny CNN (TinyTactileCNN, ~15K parameters) classifies
-   tactile frames by material type (metal/plastic/fabric/wood/rubber) using
-   cross-entropy loss and Adam optimizer.
+   tactile frames by material type (metal/plastic/fabric/wood/rubber/can)
+   using cross-entropy loss and Adam optimizer.
 
 5. **Evaluation** — Reports per-epoch loss and accuracy, plus final test set
-   accuracy. With synthetic data, converges to ~100% accuracy in 2-3 epochs.
+   accuracy. The run is deterministic (`torch.manual_seed(0)`): 8 epochs
+   converge to 99% training / 84% held-out accuracy on the mixed real +
+   synthetic set (the real GelSight "can" class is the hardest part).
 
 6. **Cross-sensor unified embedding (trained)** — A `CrossModalEncoder` is
    trained on paired synthetic records (GelSight-style imaging + Coro-style
@@ -56,7 +63,7 @@ team. It demonstrates:
   Researchers can go from sensor data to training loop in ~10 lines of haptix.
 - **Sensor coverage:** Adapters for GelSight, DIGIT, CoroCapacitive, BioTac SP,
   and TacTip (5 sensor families).
-- **Production quality:** 217 tests pass, CI green on Python 3.10/3.11/3.12,
+- **Production quality:** 235 tests pass, CI green on Python 3.10/3.11/3.12,
   haptix 0.2.0 published on PyPI.
 - **Shareable artifacts:** a single `.hapt.zip` file carries raw data +
   checksum + metadata + unified embedding — the "JPEG for touch" story.
@@ -77,22 +84,26 @@ Expected output:
 ====================================================================
   haptix — End-to-End Demo: Sensor Data → .hapt → Training
 ====================================================================
-  haptix version: 0.1.0
+  haptix version: 0.2.0
   Registered sensors: ['CoroCapacitive', 'DIGIT_v2', 'DIGIT', ...]
 
   ✅ Loaded real GelSight data: (80, 480, 640, 3)
   ✅ Loaded real Coro data: (786, 29)
   ...
-  Epoch  1:  loss=1.3654  train_acc=65.83%
-  Epoch  2:  loss=0.2905  train_acc=84.17%
-  Epoch  3:  loss=0.0198  train_acc=100.00%
+  Epoch  1:  loss=0.8279  train_acc=75.99%
+  Epoch  2:  loss=0.3717  train_acc=94.41%
   ...
+  Epoch  8:  loss=0.1496  train_acc=99.01%
 ====================================================================
   RESULTS
 ====================================================================
   Pipeline:   sensor data → .hapt → round-trip ✓ → DataLoader → CNN
-  Test acc:   100.00%
-  Total time: 4.9s
+  Classes:    ['can', 'fabric', 'metal', 'plastic', 'rubber', 'wood']
+  Train acc:  99.01% (final epoch)
+  Test acc:   84.21%
+  Train time: 6.0s
+  Total time: 11.2s
+  .hapt spec: v0.2.0
   ✅ Demo complete — pipeline is working end-to-end.
 ====================================================================
 ```
