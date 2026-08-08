@@ -453,12 +453,23 @@ def main() -> None:
     if gelsight_dir.is_dir():
         try:
             adapter = haptix.get_sensor("GelSight")
+            # Layout (2026-08): one subfolder per YCB object, e.g. 002_master_chef_can/
+            object_dirs = sorted(
+                p
+                for p in gelsight_dir.iterdir()
+                if p.is_dir()
+                and any(p.glob(f"*{ext}") for ext in (".jpg", ".jpeg", ".png", ".tif", ".tiff"))
+            )
+            if not object_dirs:
+                raise FileNotFoundError("no object subfolders with images found")
+            first = object_dirs[0]
             real_data = adapter.load(
-                gelsight_dir,
+                first,
                 interaction=InteractionMeta(type="pressing"),
-                labels=Labels(material="can", object_name="master_chef_can"),
+                labels=Labels(material="can", object_name=first.name),
             )
             print(f"  ✅ Loaded real GelSight data: {real_data.raw.shape}")
+            print(f"     Object folders found: {len(object_dirs)} — using {first.name}")
             print(f"     Sensor: {real_data.sensor.type}")
             print(f"     Frames: {real_data.raw.shape[0]}")
             real_data_loaded = True
