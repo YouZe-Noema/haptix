@@ -17,7 +17,20 @@ _DATASET_KEYS = {
     "citation",
     "license",
     "homepage",
+    "sha256",
+    "provenance",
 }
+
+# Keys every catalog entry must have. ``sha256`` and ``provenance`` are
+# optional: only datasets we host ourselves (or have verified digests for)
+# carry a checksum.
+_REQUIRED_KEYS = _DATASET_KEYS - {"sha256", "provenance"}
+
+# SHA-256 of the hosted demo sample archive. Recompute with:
+#   shasum -a 256 haptix-demo-data-v0.1.tar.gz
+# Keep in sync with the GitHub Release asset
+#   https://github.com/YouZe-Noema/haptix/releases/tag/demo-data-v0.2
+_DEMO_SAMPLE_SHA256 = "6404e1f897906c94c346a0f4c138602916c85a71a22ac8789c8539423a51fe82"
 
 _CATALOG = {
     "coro_tactile": {
@@ -100,6 +113,42 @@ _CATALOG = {
         "license": "CC BY-NC 4.0",
         "homepage": "https://robotouch.cs.columbia.edu",
     },
+    "haptix_demo_sample": {
+        "name": "haptix_demo_sample",
+        "url": (
+            "https://github.com/YouZe-Noema/haptix/releases/download/"
+            "demo-data-v0.2/haptix-demo-data-v0.1.tar.gz"
+        ),
+        "description": (
+            "Small real-data sample hosted by haptix for the end-to-end demo. "
+            "Contains real GelSight frames of YCB object 002_master_chef_can "
+            "(80 JPG, 480x640 RGB) from YCB-Sight/Robo-Touch, plus real "
+            "Lab-CORO capacitive CSV recordings (Dataset_01_Real: 786 frames, "
+            "Dataset_01_Real_V2: 300 frames; 28 taxels + force per frame). "
+            "Download is verified against a pinned SHA-256 checksum."
+        ),
+        "size_bytes": 2_673_913,
+        "sensor_type": "GelSight, CoroCapacitive",
+        "modality": "imaging, dynamic",
+        "num_samples": 1_166,  # 80 gel frames + 786 + 300 coro frames
+        "citation": (
+            "De la Cruz-S\\u00e1nchez, B. A., Kwiatkowski, J., & Roberge, J-P. "
+            "'Tactile Contact Patterns for Robotic Grasping: A Dataset of Real "
+            "and Simulated Data' (2024); Robo-Touch YCB-Sight (Zhu et al., 2023)."
+        ),
+        "license": "CC BY-NC 4.0 (YCB-Sight sample); research use (Lab-CORO sample)",
+        "homepage": "https://github.com/YouZe-Noema/haptix/releases/tag/demo-data-v0.2",
+        "sha256": _DEMO_SAMPLE_SHA256,
+        "provenance": {
+            "hosted_by": "haptix",
+            "release_tag": "demo-data-v0.2",
+            "source_datasets": [
+                "YCB-Sight (Robo-Touch) 002_master_chef_can/gelsight",
+                "Lab-CORO TactileDataset Dataset_01_Real*.csv",
+            ],
+            "verification": "SHA-256 verified on download (GitHub digest matches)",
+        },
+    },
 }
 
 
@@ -125,7 +174,7 @@ def _validate_catalog() -> None:
     Called at import time to catch typos / missing fields early.
     """
     for name, entry in _CATALOG.items():
-        missing = _DATASET_KEYS - set(entry.keys())
+        missing = _REQUIRED_KEYS - set(entry.keys())
         if missing:
             raise RuntimeError(f"Catalog entry {name!r} missing keys: {missing}")
         for key in ("size_bytes", "num_samples"):
@@ -133,6 +182,16 @@ def _validate_catalog() -> None:
                 raise RuntimeError(f"Catalog entry {name!r}: {key} must be a positive number")
         if not entry["url"].startswith("http"):
             raise RuntimeError(f"Catalog entry {name!r}: url must start with http")
+        sha256 = entry.get("sha256")
+        if sha256 is not None:
+            if not isinstance(sha256, str) or len(sha256) != 64:
+                raise RuntimeError(f"Catalog entry {name!r}: sha256 must be a 64-char hex string")
+            try:
+                int(sha256, 16)
+            except ValueError:
+                raise RuntimeError(
+                    f"Catalog entry {name!r}: sha256 must be a valid hex string"
+                ) from None
 
 
 _validate_catalog()

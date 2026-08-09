@@ -24,17 +24,21 @@ Usage::
 
 from haptix.datasets.catalog import get_dataset_info, list_datasets
 from haptix.datasets.download import (
+    ChecksumError,
     cache_info,
     cached_datasets,
     clear_cache,
     download_dataset,
+    verify_checksum,
 )
 
 __all__ = [
+    "ChecksumError",
     "cache_info",
     "cached_datasets",
     "clear_cache",
     "download_dataset",
     "get_dataset_info",
     "list_datasets",
+    "verify_checksum",
 ]

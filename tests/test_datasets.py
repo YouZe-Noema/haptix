@@ -7,7 +7,9 @@ These tests cover:
   - Download orchestration (mocked HTTP)
 """
 
+import io
 import shutil
+import tarfile
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -157,19 +159,24 @@ class TestDownload:
         """Download should call _http_download and store result."""
         cache_root = self.tmp / "cache"
 
-        # Mock the download function to create a fake archive
+        # Mock the download function to create a real (tiny) tar.gz archive
         def fake_download(url, dest):
-            dest.write_bytes(b"fake archive content")
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+                data = b"fake archive content"
+                info = tarfile.TarInfo(name="data.txt")
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+            dest.write_bytes(buf.getvalue())
 
         mock_dl.side_effect = fake_download
 
         result = download_dataset("touch_and_go", cache_dir=cache_root)
         assert result.exists()
         assert result.name == "touch_and_go"
-        # Since it's not a recognized archive format, _maybe_extract
-        # returns the dest path itself — so the archive stays as-is.
-        # We just check the dir exists and has content.
-        assert any(result.iterdir())
+        # The URL for touch_and_go ends in .tar.gz, so _maybe_extract
+        # extracts the archive into the dataset dir.
+        assert (result / "data.txt").read_bytes() == b"fake archive content"
         mock_dl.assert_called_once()
 
     @patch("haptix.datasets.download._http_download")
@@ -198,14 +205,20 @@ class TestDownload:
         (cached_dir / "data.txt").write_bytes(b"old data")
 
         def fake_download(url, dest):
-            dest.write_bytes(b"new data")
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+                data = b"new data"
+                info = tarfile.TarInfo(name="data.txt")
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+            dest.write_bytes(buf.getvalue())
 
         mock_dl.side_effect = fake_download
 
         result = download_dataset("touch_and_go", cache_dir=cache_root, force=True)
-        # Since the file is not a recognized archive, it stays as the download
-        # file inside the dataset directory
+        # Force re-download should replace the old cached content
         assert result.exists()
+        assert (result / "data.txt").read_bytes() == b"new data"
         mock_dl.assert_called_once()
 
 

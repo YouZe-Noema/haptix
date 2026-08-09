@@ -1,13 +1,14 @@
-"""
-Dataset download and cache utilities.
+"""Dataset download and cache utilities.
 
 Provides:
   - HTTP download with progress reporting
   - Local cache management under ``~/.haptix/cache/datasets/``
   - Idempotent downloads (skip if cached, re-download on demand)
+  - SHA-256 integrity verification when the catalog pins a checksum
   - Cache inspection and cleanup
 """
 
+import hashlib
 import os
 import shutil
 import tarfile
@@ -26,6 +27,43 @@ def _default_cache_dir() -> Path:
 
 
 DEFAULT_CACHE_DIR = _default_cache_dir()
+
+
+# ---------------------------------------------------------------------------
+# Integrity verification
+# ---------------------------------------------------------------------------
+
+
+class ChecksumError(RuntimeError):
+    """Raised when a downloaded archive fails SHA-256 verification."""
+
+
+def _sha256_of(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Compute the SHA-256 digest of *path* in streaming fashion."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_checksum(path: Path, expected_sha256: str) -> bool:
+    """Return True if *path* matches *expected_sha256*.
+
+    The expected digest is a 64-char lowercase hex string. A mismatch is
+    reported via :class:`ChecksumError` — never silently ignored.
+    """
+    actual = _sha256_of(path)
+    if actual != expected_sha256:
+        raise ChecksumError(
+            f"SHA-256 mismatch for {path.name}:\n"
+            f"  expected: {expected_sha256}\n"
+            f"  actual:   {actual}"
+        )
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +201,15 @@ def download_dataset(
     # Create the cache directory
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download to a temp name, then rename on success
-    tmp_path = dataset_dir.with_name(f".{name}.download")
     url = info["url"]
+
+    # Download to a temp name, then rename on success. Keep the real
+    # filename (derived from the URL) so _maybe_extract can detect the
+    # archive format from its suffix.
+    url_filename = url.split("?")[0].rstrip("/").split("/")[-1]
+    if not url_filename:
+        url_filename = f"{name}.download"
+    tmp_path = dataset_dir.with_name(f".{name}.{url_filename}")
 
     print(f"[haptix] Downloading dataset '{name}' from:")
     print(f"         {url}")
@@ -174,11 +218,22 @@ def download_dataset(
     try:
         _http_download(url, tmp_path)
 
+        # Verify integrity when the catalog pins a checksum.
+        expected_sha256 = info.get("sha256")
+        if expected_sha256:
+            print(f"[haptix] Verifying SHA-256 ({expected_sha256[:12]}...)...")
+            verify_checksum(tmp_path, expected_sha256)
+            print("[haptix] Checksum OK ✓")
+
         if extract:
-            _maybe_extract(tmp_path, dataset_dir)
+            # Rename to the real filename first so _maybe_extract can detect
+            # the archive format, then extract into the dataset dir.
+            clean_path = dataset_dir.with_name(url_filename)
+            tmp_path.rename(clean_path)
+            _maybe_extract(clean_path, dataset_dir)
         else:
             # Move temp file to final location without extraction
-            shutil.move(str(tmp_path), str(dataset_dir / tmp_path.name))
+            shutil.move(str(tmp_path), str(dataset_dir / url_filename))
 
     except BaseException:
         # Clean up partial download on failure
