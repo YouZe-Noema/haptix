@@ -75,7 +75,7 @@ haptix operates at two layers:
   ┌──────────┐     │                                 │
   │ GelSight │────▶│  GelSightAdapter                │
   └──────────┘     │                                 │
-  ┌──────────┐     │  CoroAdapter                    │
+  ┌──────────┐     │  CoroCapacitiveAdapter           │
   │ Coro CSV │────▶│  (auto-discovered via @register)│
   └──────────┘     └───────────────┬─────────────────┘
                                    │
@@ -149,7 +149,7 @@ Python 3.10+ required.
 - [x] Dataset catalog infrastructure (download, cache, info)
 - [x] CI/CD: lint + test on Python 3.10–3.12
 
-### v0.2 — Real Data & Coverage (in progress)
+### v0.2 — Real Data & Coverage ✅
 - [x] Provenance tracking: `provenance.json` with file hashes, derivation chain, processing history
 - [x] Content-addressable file identity (`file_hash` = SHA-256 of directory)
 - [x] `coordinate_frame` field in manifest (world / sensor_local / robot_base / object)
@@ -165,8 +165,9 @@ Python 3.10+ required.
 
 ### v0.3 — Unified Representations
 - [x] Cross-sensor latent space (SharedForceEncoder prototype — surrogate projections)
+- [x] CrossModalEncoder — trained cross-sensor alignment via CCA + Procrustes (weights serializable to `.npz`)
 - [x] `unified/` directory in `.hapt` container (transform metadata, model versioning, checksum)
-- [ ] Pre-trained encoders for common sensor types
+- [ ] Pre-trained encoders for common sensor types (design: [`docs/encoder-registry.md`](docs/encoder-registry.md))
 - [ ] Foundation model for tactile data
 
 ### Beyond
@@ -212,7 +213,7 @@ The `.hapt` specification is in [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.m
 git clone https://github.com/YouZe-Noema/haptix.git
 cd haptix
 pip install -e ".[dev]"
-pytest -v                        # 130+ tests
+pytest -v                        # 235 tests
 ruff check haptix/ tests/        # lint
 black haptix/ tests/             # format
 ```

@@ -97,7 +97,7 @@ class DigitAdapter:
                 raise ImportError(
                     "Video loading requires opencv-python. " "Install with: pip install haptix[all]"
                 )
-            raise NotImplementedError("Video loading coming in v0.2.0")
+            raise NotImplementedError("Video loading planned for v0.3.0")
 
         raise ValueError(f"Unsupported DIGIT format: {path}")
 
