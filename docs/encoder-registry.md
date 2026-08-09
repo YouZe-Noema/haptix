@@ -109,14 +109,23 @@ def register_encoder(sensor_type: str, modality: str = "imaging"):
     return decorator
 
 def get_encoder(sensor_type: str) -> SensorEncoder:
-    """Get (and lazily import) the encoder for a sensor type."""
+    """Get (and lazily import) the encoder for a sensor type.
+
+    Returns the best available encoder:
+      - the registered trained encoder for *sensor_type*, if any;
+      - otherwise :class:`SharedForceEncoder` as a deterministic
+        surrogate fallback (version tag carries "/surrogate" so callers
+        can distinguish placeholder embeddings from learned ones).
+
+    Encoders may exist without a matching :class:`SensorAdapter` — the two
+    registries are intentionally decoupled. A contributed encoder's
+    ``benchmark()`` is the evidence that a working data path exists.
+    """
     _lazy_import_encoders()
-    if sensor_type not in _registry:
-        raise ValueError(
-            f"Unknown encoder for sensor type: {sensor_type}. "
-            f"Available: {list(_registry.keys())}"
-        )
-    return _registry[sensor_type]()
+    if sensor_type in _registry:
+        return _registry[sensor_type]()
+    # Surrogate fallback: deterministic, zero-deps, shape-correct.
+    return SharedForceEncoder(embedding_dim=_default_dim_for(sensor_type))
 
 def list_encoders() -> list[str]:
     """List sensor types with a registered encoder."""
@@ -127,6 +136,24 @@ def list_encoders() -> list[str]:
 `_lazy_import_encoders()` = `pkgutil.iter_modules` over `haptix/encoders/`,
 identical to `haptix.sensors._lazy_import_adapters`. Contribution = drop a
 module in the package (or register programmatically) — no core edits.
+
+Dimension helper (used by the surrogate fallback):
+
+```python
+_IMAGING_DIM, _DYNAMIC_DIM = 256, 128
+
+def _default_dim_for(sensor_type: str) -> int:
+    """Default embedding dim for a sensor type: 256 imaging / 128 dynamic."""
+    from haptix.sensors import get_sensor  # lazy, decoupled
+    try:
+        modality = get_sensor(sensor_type).modality
+    except ValueError:
+        modality = "dynamic"  # unknown sensor → conservative default
+    return _IMAGING_DIM if modality == "imaging" else _DYNAMIC_DIM
+```
+
+(If a modality is unavailable without an adapter, `get_encoder` falls back
+to the dynamic dim — shape-correct, never raises.)
 
 ### 3.3 Layout
 
@@ -291,13 +318,17 @@ Until then: per-sensor encoders + alignment is the product.
   verification (reproducible `benchmark()`, checksum match, determinism
   test) before appearing in `list_encoders()` (see §4).
 
-**Still open:**
+**Status: all resolved (2026-08-09).** Final decisions on the remaining
+items:
 
-- **Encoder ↔ adapter naming:** should `get_encoder` validate that a matching
-  `SensorAdapter` exists, or are encoders allowed to precede adapters?
-- **Where does `SharedForceEncoder` go?** Keep as fallback surrogate for
-  sensors without a registered encoder (deterministic, zero deps), or retire
-  once real encoders cover all catalog sensors?
+- **Encoder ↔ adapter coupling:** decoupled by design. Encoders may precede
+  adapters; `get_encoder()` never hard-validates against the adapter
+  registry (see §3.2). `benchmark()` is the proof a data path works.
+- **`SharedForceEncoder`:** stays as the automatic surrogate fallback for
+  sensors without a registered trained encoder, version-tagged
+  `.../surrogate` so placeholder embeddings are never mistaken for learned
+  ones (see §3.2). Retired only if/when trained encoders cover the full
+  catalog.
 
 ---
 
@@ -305,8 +336,10 @@ Until then: per-sensor encoders + alignment is the product.
 
 - `haptix/sensors/*` — untouched. Adapters remain the input layer.
 - `haptix/unified/encoder.py` — `SharedForceEncoder` and `CrossModalEncoder`
-  remain; `CrossModalEncoder` gains `encode_from_embedding` (+ alignment
-  semantics), `SharedForceEncoder` stays as the no-weights fallback.
+  remain; `SharedForceEncoder` becomes the automatic surrogate fallback
+  served by `get_encoder()` for sensors without a registered trained encoder
+  (see §3.2); `CrossModalEncoder` gains `encode_from_embedding` (+ alignment
+  semantics).
 - `haptix/datasets/*` — `verify_checksum` reused for encoder weight files;
   catalog schema gains optional `weights_url`/`weights_sha256` per sensor.
 - `.hapt` spec v0.2 `unified/` directory — `method` tags already versioned
