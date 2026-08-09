@@ -161,7 +161,7 @@ Python 3.10+ required.
 - [x] End-to-end demo: sensor data → .hapt → PyTorch training loop (~12s on CPU)
 - [x] Zarr+Zstd compression mode (`.hapt.zarr`)
 - [x] ZIP archive mode (`.hapt.zip`) — single-file stdlib archive, no extra deps
-- [ ] Hosted dataset catalog with provenance + checksum linking
+- [x] Hosted dataset catalog with provenance + checksum linking
 
 ### v0.3 — Unified Representations
 - [x] Cross-sensor latent space (SharedForceEncoder prototype — surrogate projections)
