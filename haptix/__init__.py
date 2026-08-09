@@ -10,6 +10,7 @@ from haptix.datasets import (
     list_datasets,
     verify_checksum,
 )
+from haptix.encoders import SensorEncoder, get_encoder, list_encoders, register_encoder
 from haptix.io import ChecksumError, HaptFormatError, load, save
 from haptix.sensors import get_sensor, list_sensors, register
 from haptix.unified import CrossModalEncoder, SharedForceEncoder, UnifiedEncoder
@@ -22,6 +23,7 @@ __all__ = [
     "HaptFormatError",
     "Provenance",
     "RawData",
+    "SensorEncoder",
     "SensorMeta",
     "SharedForceEncoder",
     "Source",
@@ -31,11 +33,14 @@ __all__ = [
     "clear_cache",
     "download_dataset",
     "get_dataset_info",
+    "get_encoder",
     "get_sensor",
     "list_datasets",
+    "list_encoders",
     "list_sensors",
     "load",
     "register",
+    "register_encoder",
     "save",
     "verify_checksum",
 ]
