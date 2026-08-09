@@ -9,7 +9,7 @@ projection; the fixed 256-dim output is the registry contract.
 """
 
 from haptix.encoders import register_encoder
-from haptix.encoders.base import _BaseSensorEncoder, _IMAGING_DIM
+from haptix.encoders.base import _IMAGING_DIM, _BaseSensorEncoder
 
 
 @register_encoder("GelSight", modality="imaging")

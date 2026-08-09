@@ -9,7 +9,7 @@ the registry contract.
 """
 
 from haptix.encoders import register_encoder
-from haptix.encoders.base import _BaseSensorEncoder, _DYNAMIC_DIM
+from haptix.encoders.base import _DYNAMIC_DIM, _BaseSensorEncoder
 
 
 @register_encoder("CoroCapacitive", modality="dynamic")

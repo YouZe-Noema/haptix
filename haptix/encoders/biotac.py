@@ -10,7 +10,7 @@ registry contract.
 """
 
 from haptix.encoders import register_encoder
-from haptix.encoders.base import _BaseSensorEncoder, _DYNAMIC_DIM
+from haptix.encoders.base import _DYNAMIC_DIM, _BaseSensorEncoder
 
 
 @register_encoder("BioTac_SP", modality="dynamic")
