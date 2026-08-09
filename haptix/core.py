@@ -346,46 +346,57 @@ class HaptData:
 
     @property
     def raw(self) -> RawData:
+        """Raw sensor array wrapped in :class:`RawData` (use ``.numpy()``)."""
         return self._raw
 
     @property
     def sensor(self) -> SensorMeta:
+        """Sensor metadata: type, shape, dtype, sampling hints."""
         return self._sensor
 
     @property
     def modality(self) -> Modality:
+        """Data modality: ``imaging``, ``dynamic``, ``force``, or ``multimodal``."""
         return self._modality
 
     @property
     def sampling_rate_hz(self) -> float:
+        """Nominal sampling rate of the recording, in Hz."""
         return self._sampling_rate_hz
 
     @property
     def interaction(self) -> InteractionMeta:
+        """Interaction metadata: task/description/device/session."""
         return self._interaction
 
     @property
     def labels(self) -> Labels:
+        """Structured labels: material, object, grasp type, custom."""
         return self._labels
 
     @property
     def unified(self) -> UnifiedData | None:
+        """Cross-sensor embedding from a unified encoder, or None."""
         return self._unified
 
     @property
     def version(self) -> str:
+        """.hapt spec version this file conforms to."""
         return self._version
 
     @property
     def provenance(self) -> "Provenance | None":
+        """Provenance chain (file hashes, derivation steps), or None."""
         return self._provenance
 
     @property
     def coordinate_frame(self) -> str | None:
+        """Coordinate frame of the data, or None if unset."""
         return self._coordinate_frame
 
     @property
     def timestamps_s(self) -> list | None:
+        """Per-frame timestamps in seconds, or None if not recorded."""
         return self._timestamps_s
 
     def _to_tensor(self, arr: np.ndarray, dtype) -> "torch.Tensor":

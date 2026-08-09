@@ -359,3 +359,99 @@ data = adapter.load(
     sensor_meta=SensorMeta(type="DIGIT_v2", serial="SN-001"),  # optional
 )
 ```
+
+---
+
+## Datasets Module (`haptix.datasets`)
+
+### `list_datasets() -> list[str]`
+
+List all dataset names in the catalog.
+
+### `get_dataset_info(name: str) -> dict`
+
+Return catalog metadata for a dataset: `name`, `url`, `size_bytes`,
+`sensor_type`, `modality`, `license`, `citation`, and optionally `sha256`
++ `provenance` for checksum-verified datasets.
+
+### `download_dataset(name, cache_dir=None, force=False, extract=True) -> Path`
+
+Download a dataset from the catalog into the local cache
+(`~/.haptix/cache/datasets/` by default) and return the dataset directory.
+
+- Automatically verifies the pinned SHA-256 checksum when the catalog entry
+  has one; raises `ChecksumError` on mismatch.
+- Archives (`.tar.gz`, `.zip`) are extracted into the dataset directory.
+- `force=True` re-downloads even if cached; `extract=False` keeps the
+  archive file as-is.
+
+```python
+path = haptix.download_dataset("haptix_demo_sample")
+```
+
+### `cached_datasets(cache_dir=None) -> list[str]`
+
+List datasets already present in the local cache.
+
+### `cache_info(cache_dir=None) -> dict`
+
+Return `cache_path`, `total_datasets`, and `total_bytes` for the cache.
+
+### `clear_cache(cache_dir=None) -> None`
+
+Delete the dataset cache directory.
+
+### `verify_checksum(path, expected_sha256) -> bool`
+
+Streaming SHA-256 verification. Raises `ChecksumError` on mismatch, returns
+`True` on match. Used internally by `download_dataset` and available to
+contributors for weight-file verification.
+
+---
+
+## Unified Encoders Module (`haptix.unified`)
+
+### `class UnifiedEncoder` (Protocol)
+
+Protocol for cross-sensor encoders. Implementations must be deterministic
+and expose a `version` string plus `encode(data: HaptData) -> UnifiedData`.
+
+### `class SharedForceEncoder`
+
+Untrained surrogate encoder (zero dependencies). Maps any sensor's data into
+a fixed-dimension embedding via spatial resize (imaging) or pad/truncate
+(dynamic). Useful for shape checks, pipeline tests, and as a fallback before
+trained encoders exist.
+
+```python
+enc = haptix.SharedForceEncoder(embedding_dim=128)
+embedding = enc.encode(haptix.load("sample.hapt"))  # UnifiedData, .array [T, 128]
+```
+
+### `class CrossModalEncoder`
+
+Trained cross-sensor encoder: learns per-modality linear projections into a
+shared latent space via CCA + Procrustes alignment over class centroids.
+Weights are serializable to a single `.npz` file (`save`/`load`), so
+encoders can be pre-trained, versioned, and shipped.
+
+```python
+enc = haptix.CrossModalEncoder(embedding_dim=64)
+enc.fit(records, label_key="material")     # list[HaptData] with labels
+shared = enc.encode(haptix.load("sample.hapt"))  # UnifiedData in shared space
+enc.save("weights/cca_v0.2.npz")
+```
+
+**Introspection:** `enc.fitted`, `enc.classes`, `enc.n_records`.
+
+---
+
+## Deprecations
+
+- **Flat `.hapt` files (legacy):** deprecated and rejected with
+  `HaptFormatError`. Use directory format, `.hapt.zarr`, or `.hapt.zip`
+  (see `haptix.load`).
+- **`RuntimeError`-based `haptix.datasets.ChecksumError`:** removed as a
+  separate class — `ChecksumError` is now defined once in `haptix.io`
+  (subclass of `ValueError`) and re-exported from `haptix.datasets`.
+  Existing `from haptix.datasets import ChecksumError` imports keep working.

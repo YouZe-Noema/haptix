@@ -123,12 +123,14 @@ def load(path: str | Path) -> HaptData:
     if path.suffix == ".zip" and path.is_file():
         return _load_zip(path)
 
-    # Support both directory and legacy flat file
+    # Directory format (current), .hapt.zarr, and .hapt.zip are supported.
+    # The legacy flat .hapt file format is deprecated and rejected below.
     if path.is_dir():
         return _load_dir(path)
     if path.suffix == ".hapt" and path.is_file():
         raise HaptFormatError(
-            "Flat .hapt files are not supported. Use directory format, " ".hapt.zarr, or .hapt.zip."
+            "Flat .hapt files are deprecated and no longer supported. "
+            "Use directory format, .hapt.zarr, or .hapt.zip."
         )
     raise FileNotFoundError(f"Not a valid .hapt path: {path}")
 

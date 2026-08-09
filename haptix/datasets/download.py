@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 
 from haptix.datasets.catalog import get_dataset_info
+from haptix.io import ChecksumError  # canonical class (defined in haptix.io)
 
 
 # Default cache location — override by setting HAPTIX_CACHE_DIR env var
@@ -34,8 +35,10 @@ DEFAULT_CACHE_DIR = _default_cache_dir()
 # ---------------------------------------------------------------------------
 
 
-class ChecksumError(RuntimeError):
-    """Raised when a downloaded archive fails SHA-256 verification."""
+# ChecksumError is defined in haptix.io (canonical) and re-exported here so
+# `from haptix.datasets import ChecksumError` keeps working. One class, one
+# exception hierarchy: catching haptix.io.ChecksumError catches both file-IO
+# and dataset-download checksum failures.
 
 
 def _sha256_of(path: Path, chunk_size: int = 1024 * 1024) -> str:

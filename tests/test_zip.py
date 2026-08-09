@@ -277,7 +277,7 @@ class TestZipErrors:
             flat = tmp / "legacy.hapt"
             flat.write_bytes(b"anything")
 
-            with pytest.raises(HaptFormatError, match="not supported"):
+            with pytest.raises(HaptFormatError, match="deprecated"):
                 load(flat)
         finally:
             shutil.rmtree(tmp)
