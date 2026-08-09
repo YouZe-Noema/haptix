@@ -36,8 +36,12 @@ keeps the future FM swap-in non-breaking.
   different natively but must expose the *same* `encode()` contract so the
   alignment layer can compose them.
 - **Fixed output dimension is the contract.** Every encoder emits `[T, D]`
-  with the same `D` (default 256). The alignment layer and downstream
-  consumers depend on this, not on any sensor's internals.
+  with a declared, registry-validated `embedding_dim`. Defaults: 256 for
+  imaging sensors, 128 for dynamic sensors (see §3.1). The invariant that
+  matters: once an encoder's dim is published it is **stable for that sensor
+  type** — never changes without a version bump. The alignment layer handles
+  heterogeneous dims natively (CCA supports D_a ≠ D_b), so mixed 256/128
+  encoders compose cleanly.
 - **Versioned and reproducible.** Encoder weights are serialized to `.npz`,
   version strings travel with every embedding (`UnifiedData.method`), and a
   checksum pins each weight file — reuse `verify_checksum` from
@@ -65,7 +69,7 @@ class SensorEncoder(Protocol):
 
     sensor_type: str          # "GelSight", "DIGIT", "CoroCapacitive", ...
     modality: str             # "imaging" | "dynamic" | "force" | "multimodal"
-    embedding_dim: int        # fixed output dim; 256 by convention
+    embedding_dim: int        # fixed output dim; 256 imaging / 128 dynamic
     version: str              # "encoders/gelsight/v1.0"
 
     def encode(self, data: HaptData) -> np.ndarray:
@@ -166,10 +170,17 @@ The community contribution path mirrors `docs/adapters.md`:
    `haptix/encoders/`.
 3. Ship trained weights as `.npz` (single file, versioned name
    `their_sensor_v1.0.npz`) + a published SHA-256 (reuse the datasets
-   checksum tooling; optionally host weights on the haptix GitHub release,
-   same as `haptix_demo_sample`).
-4. Add a `benchmark()` method or doc section reporting eval on a public
-   dataset (e.g. YCB-Sight for GelSight) so quality is checkable.
+   checksum tooling; weights hosted on the Hugging Face Hub — see §7).
+4. **Mandatory `benchmark()`** — a method (or script in the encoder module)
+   that evaluates the encoder on a public dataset (e.g. YCB-Sight for
+   GelSight) and returns a small structured report: dataset, metric, score,
+   split. An encoder is not "done" without it.
+5. **Maintainer verification gate** — before a contributed encoder is
+   accepted into the registry, maintainers verify: (a) the `benchmark()`
+   result is reproducible, (b) the weights checksum matches, (c) the encoder
+   passes the deterministic-input regression test. Contributions that fail
+   verification can still live as community forks, but are not listed in
+   `haptix.list_encoders()`.
 
 Registry entries that ship without weights are still valid — they document
 the architecture and let users train the encoder on their own data
@@ -217,7 +228,33 @@ enforcement.
 
 ---
 
-## 7. Foundation-model evolution path (non-breaking)
+## 7. Weights hosting: Hugging Face Hub
+
+**Decision (2026-08-09):** encoder weights are hosted on the Hugging Face Hub,
+starting with the first stable release. Rationale:
+
+- HF Hub is the de-facto community distribution channel for model weights;
+  contributors already have accounts, and `huggingface_hub` gives versioned
+  downloads + a built-in audit trail.
+- It matches the catalog pattern: a catalog entry per encoder pins
+  `weights_url` (HF Hub resolve URL) + `weights_sha256`, and the existing
+  `verify_checksum` flow validates integrity on download — identical to how
+  `haptix_demo_sample` works today, just pointed at HF instead of a GitHub
+  release.
+- GitHub releases stay for dataset archives (as today); HF Hub is the
+  weights home. No overlap, no ambiguity.
+
+Catalog schema addition (per sensor, optional until weights exist):
+
+```python
+"encoder": {
+    "weights_url": "https://huggingface.co/YouZe-Noema/haptix-encoders/resolve/main/gelsight_v1.0.npz",
+    "weights_sha256": "64-char-hex",
+    "embedding_dim": 256,
+}
+```
+
+## 8. Foundation-model evolution path (non-breaking)
 
 A future FM is just another registered encoder — a `CompositeEncoder`:
 
@@ -241,24 +278,30 @@ Until then: per-sensor encoders + alignment is the product.
 
 ---
 
-## 8. Open questions (decide before implementation)
+## 9. Open questions (decide before implementation)
 
-- **Dim convention:** 256 as `_DEFAULT_EMBEDDING_DIM`? (existing
-  `SharedForceEncoder` uses 128, `CrossModalEncoder` 64 — registry should
-  standardize on one for the per-sensor layer.)
-- **Weights hosting:** GitHub releases (like `haptix_demo_sample`) vs HF Hub
-  vs both. Affects the catalog schema (`weights_url` + `sha256` fields).
+**Resolved (2026-08-09):**
+
+- **Dim convention:** 256 for imaging sensors, 128 for dynamic sensors
+  (rationale in §3.1). Not a universal 256 — per-sensor defaults, stable
+  once published.
+- **Weights hosting:** Hugging Face Hub, from the first stable release
+  (see §7). Catalog schema gains `weights_url` + `weights_sha256`.
+- **Contribution gate:** contributed encoders require maintainer
+  verification (reproducible `benchmark()`, checksum match, determinism
+  test) before appearing in `list_encoders()` (see §4).
+
+**Still open:**
+
 - **Encoder ↔ adapter naming:** should `get_encoder` validate that a matching
   `SensorAdapter` exists, or are encoders allowed to precede adapters?
-- **Trained-from-scratch vs backbone-finetune gating:** is a contributed
-  encoder "done" with weights, or is a `benchmark()` hook mandatory?
 - **Where does `SharedForceEncoder` go?** Keep as fallback surrogate for
   sensors without a registered encoder (deterministic, zero deps), or retire
   once real encoders cover all catalog sensors?
 
 ---
 
-## 9. Relationship to existing code (no changes to current API)
+## 10. Relationship to existing code (no changes to current API)
 
 - `haptix/sensors/*` — untouched. Adapters remain the input layer.
 - `haptix/unified/encoder.py` — `SharedForceEncoder` and `CrossModalEncoder`
