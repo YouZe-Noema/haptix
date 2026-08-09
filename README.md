@@ -167,7 +167,7 @@ Python 3.10+ required.
 - [x] Cross-sensor latent space (SharedForceEncoder prototype — surrogate projections)
 - [x] CrossModalEncoder — trained cross-sensor alignment via CCA + Procrustes (weights serializable to `.npz`)
 - [x] `unified/` directory in `.hapt` container (transform metadata, model versioning, checksum)
-- [ ] Pre-trained encoders for common sensor types (design: [`docs/encoder-registry.md`](docs/encoder-registry.md))
+- [x] Pre-trained encoders for common sensor types — encoder registry + untrained per-sensor encoders landed (design: [`docs/encoder-registry.md`](docs/encoder-registry.md)); trained weights pending
 - [ ] Foundation model for tactile data
 
 ### Beyond

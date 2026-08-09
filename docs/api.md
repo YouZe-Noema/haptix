@@ -446,6 +446,98 @@ enc.save("weights/cca_v0.2.npz")
 
 ---
 
+## Encoder Registry Module (`haptix.encoders`)
+
+Per-sensor encoders — the v0.3 "pre-trained encoders for common sensor types"
+roadmap item (design: [`docs/encoder-registry.md`](encoder-registry.md)).
+A per-sensor encoder is the front-end of the encoding stack: raw sensor data
+→ fixed-dimensional embedding `[T, D]`. The alignment layer
+(`CrossModalEncoder`) composes these embeddings into a shared space, so a
+per-sensor encoder never needs to know about other sensors.
+
+**Dimension convention:** 256 for imaging sensors (GelSight, DIGIT), 128 for
+dynamic sensors (CoroCapacitive, BioTac_SP, TacTip). Once published, an
+encoder's dim is stable for that sensor type — it never changes without a
+version bump.
+
+### `class SensorEncoder` (Protocol)
+
+```python
+class SensorEncoder(Protocol):
+    sensor_type: str      # "GelSight", "DIGIT", "CoroCapacitive", ...
+    modality: str         # "imaging" | "dynamic" | "force" | "multimodal"
+    embedding_dim: int    # fixed output dim; 256 imaging / 128 dynamic
+    version: str          # "encoders/gelsight/v0.1"
+
+    def encode(self, data: HaptData) -> np.ndarray: ...   # [T, ...] -> [T, D]
+    def save(self, path: Path) -> None: ...               # single .npz
+    @classmethod
+    def load(cls, path: Path) -> "SensorEncoder": ...     # ready-to-encode instance
+```
+
+`encode()` is deterministic: same input → same embedding. `isinstance(enc,
+SensorEncoder)` works at runtime (`@runtime_checkable`).
+
+### `register_encoder(sensor_type, modality="imaging")`
+
+Decorator to register a per-sensor encoder class. Sets `sensor_type` and
+`modality` on the class and adds it to the registry. Contribution = drop a
+module under `haptix/encoders/` (or register programmatically) — no core
+edits. The registry is **decoupled** from the adapter registry: an encoder may
+exist without a matching adapter; a contributed encoder's `benchmark()` is the
+evidence a data path works.
+
+### `get_encoder(sensor_type) -> SensorEncoder`
+
+Returns the best available encoder for a sensor type:
+
+- the registered encoder, if any;
+- otherwise a deterministic **surrogate fallback** (version tag
+  `unified/shared-force/v0.1/surrogate` — placeholder embeddings are never
+  mistaken for learned ones).
+
+Never raises for unknown sensor types (falls back to the dynamic dim, 128).
+
+```python
+import haptix
+
+haptix.list_encoders()          # ["BioTac_SP", "CoroCapacitive", "DIGIT", "GelSight", "TacTip"]
+enc = haptix.get_encoder("GelSight")
+emb = enc.encode(haptix.load("sample.hapt"))   # np.ndarray [T, 256]
+assert enc.version == "encoders/gelsight/v0.1"
+```
+
+### `list_encoders() -> list[str]`
+
+Lists sensor types with a registered encoder. Triggers lazy import of every
+module under `haptix/encoders/`.
+
+### Registered encoders (v0.1, untrained)
+
+All five concrete encoders are deterministic **untrained** projections that
+honor the fixed-dim contract (`trained is False`): imaging sensors are
+grayscale-Lanczos-resized to a `sqrt(D)` grid and flattened to exactly
+`[T, D]`; dynamic sensors pad or crop features to exactly `[T, D]`. Trained
+weights (v1.0+) replace the projection; `save()`/`load()` serialize config
+today and will append weight arrays later.
+
+| Encoder | sensor_type | Modality | dim | version |
+|---|---|---|---|---|
+| `GelSightEncoder` | GelSight | imaging | 256 | `encoders/gelsight/v0.1` |
+| `DIGITEncoder` | DIGIT | imaging | 256 | `encoders/digit/v0.1` |
+| `CoroCapacitiveEncoder` | CoroCapacitive | dynamic | 128 | `encoders/coro/v0.1` |
+| `BioTacSPEncoder` | BioTac_SP | dynamic | 128 | `encoders/biotac/v0.1` |
+| `TacTipEncoder` | TacTip | dynamic | 128 | `encoders/tactip/v0.1` |
+
+### `benchmark()` (contributor contract)
+
+Every encoder implements `benchmark() -> dict` returning a structured report
+(`dataset`, `metric`, `score`, `split`). Untrained encoders report
+`score=None` with a note; a trained contribution is not "done" until its
+benchmark is reproducible (see the design doc §4).
+
+---
+
 ## Deprecations
 
 - **Flat `.hapt` files (legacy):** deprecated and rejected with

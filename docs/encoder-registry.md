@@ -1,6 +1,7 @@
-# Encoder Registry — Design Note (v0.1, not implemented)
+# Encoder Registry — Design Note (v0.1, implemented 2026-08-09)
 
-> **Status:** Design proposal. No code landed yet.
+> **Status:** Design implemented. Registry + untrained per-sensor encoders
+> landed in `haptix/encoders/` (commit df82b8b); trained weights pending.
 > **Strategy:** per-sensor encoders first, community-contributed; a foundation
 > model only when sensor coverage + alignment data justify it.
 > **Companion docs:** `docs/adapters.md` (sensor adapters), `docs/api.md`.
