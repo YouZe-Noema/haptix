@@ -222,7 +222,7 @@ def _class_rotation(whitened: np.ndarray, labels: list[str], reg: float = 1e-9) 
         centroid = whitened[idx].mean(axis=0)
         S_B += len(idx) * np.outer(centroid, centroid)
     S_B /= len(labels)
-    w, V = np.linalg.eigh((S_B + S_B.T) / 2.0 + reg * np.eye(S_B.shape[0]))
+    _, V = np.linalg.eigh((S_B + S_B.T) / 2.0 + reg * np.eye(S_B.shape[0]))
     # eigh returns ascending eigenvalues; flip so class dirs come first.
     V = V[:, ::-1]
     rank = min(len(unique) - 1, whitened.shape[1])
