@@ -301,6 +301,20 @@ class HaptArchive:
         """Version tag of the unified representation, if present."""
         return self._unified_method
 
+    @property
+    def unified_shape(self) -> tuple[int, ...] | None:
+        """Shape of the unified representation, or None if absent.
+
+        Metadata-only accessor (no array materialization) useful for
+        validating that a set of recordings share an embedding dimension
+        before building a dataset over ``unified/``.
+        """
+        if self._zarr_unified is not None:
+            return tuple(self._zarr_unified.shape)
+        if self._unified_arr is not None:
+            return tuple(self._unified_arr.shape)
+        return None
+
     # ── Raw access ──────────────────────────────────────────────────────
 
     def _raw_slice(self, start: int, stop: int) -> np.ndarray:

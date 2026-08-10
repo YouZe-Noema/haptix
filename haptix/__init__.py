@@ -21,6 +21,7 @@ from haptix.io import ChecksumError, HaptFormatError, load, save
 from haptix.recorder import HaptRecorder
 from haptix.sensors import get_sensor, list_sensors, register
 from haptix.streaming import HaptArchive, open_archive
+from haptix.torch_dataset import TemporalDataset, WindowedDataset
 from haptix.unified import CrossModalEncoder, SharedForceEncoder, UnifiedEncoder
 
 __version__ = "0.2.0"
@@ -37,7 +38,9 @@ __all__ = [
     "SensorMeta",
     "SharedForceEncoder",
     "Source",
+    "TemporalDataset",
     "UnifiedEncoder",
+    "WindowedDataset",
     "cache_info",
     "cached_datasets",
     "clear_cache",

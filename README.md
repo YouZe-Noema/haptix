@@ -40,6 +40,12 @@ frames = data.raw.numpy()            # ndarray [T, H, W, C]
 from torch.utils.data import DataLoader
 loader = DataLoader(data.to_torch(batch_size=32, label="material"))
 
+# Windowed episode dataset for robot-learning loops (Diffusion Policy, ACT, ...)
+from haptix import WindowedDataset
+ds = WindowedDataset(["ep1.hapt", "ep2.hapt"], window_size=32, stride=16, label="material")
+for X, y in DataLoader(ds, batch_size=16, shuffle=True):
+    ...  # X: [B, 32, ...] window, y: [B] class index
+
 # Lossless round-trip
 haptix.save(data, "copy.hapt")
 reloaded = haptix.load("copy.hapt")
@@ -173,7 +179,7 @@ Python 3.10+ required.
 ### Beyond
 - [x] Streaming / temporal windowing for long recordings — `haptix.open_archive()` (lazy, memory-mapped dir / chunked zarr / zip), `iter_windows()` / `window()` / `verify()` ([`docs/api.md`](docs/api.md))
 - [x] Real-time data collection toolkit — `haptix.HaptRecorder` incremental capture → valid `.hapt` on close ([`examples/live_capture.py`](examples/live_capture.py))
-- [ ] Integration with robot learning frameworks (Diffusion Policy, ACT, etc.)
+- [x] Integration with robot learning frameworks (Diffusion Policy, ACT, etc.) — PyTorch-native `WindowedDataset` over `.hapt` episodes ([`docs/api.md`](docs/api.md), [`examples/windowed_training.py`](examples/windowed_training.py)); LeRobot adapter deferred to a later stage
 - [ ] Tactile data browser / visualization tool
 - [ ] Community sensor adapter contributions
 

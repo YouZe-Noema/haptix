@@ -449,11 +449,105 @@ Lazy handle exposing recording metadata (`sensor`, `modality`,
   (uses `timestamps_s` when present, else `rate_hz` spacing).
 - **`verify() -> bool`** — streaming SHA-256 verification (memory-bounded;
   raises `ChecksumError` on mismatch, matching `load()` semantics).
+- **`unified_shape -> tuple | None`** — shape of the `unified/`
+  representation, or `None` if absent. Metadata-only (no array
+  materialization); useful for validating that recordings share an
+  embedding dimension before building a dataset over `unified/`.
 
 Memory behavior by format: directory → memory-mapped (`O(window)` per
 window); zarr → chunked reads (`O(window)` + decompression); zip → raw
 member decompressed once at open (`O(full array)` — prefer directory/zarr
 for very long recordings).
+
+---
+
+## PyTorch Dataset Module (`haptix.torch_dataset`)
+
+Bridges lazy `.hapt` archives to `torch.utils.data.Dataset` — the seam that
+lets PyTorch-based robot-learning frameworks (Diffusion Policy, ACT, LeRobot,
+...) consume `.hapt` recordings directly. Each recording is an *episode*;
+each dataset item is a temporal *window* of frames that never crosses an
+episode boundary. This is the PyTorch-native half of the robot-learning
+integration roadmap item (a LeRobot dataset adapter is deferred to a later
+stage).
+
+### `class WindowedDataset(torch.utils.data.Dataset)`
+
+`WindowedDataset(sources, window_size, stride=None, *, label=None,
+transform=None, target_transform=None, dtype='float32', drop_last=False,
+use_unified=False)`
+
+- **`sources`** — one or more recordings: `HaptArchive`, `HaptData`, path-like
+  (`str`/`Path`), or an iterable of those. Paths are opened lazily as
+  archives; archives the dataset opens itself are closed by `close()` / the
+  context manager. Passed-in `HaptArchive`/`HaptData` objects keep their
+  owner's lifecycle.
+- **`window_size`** — frames per window (>= 1). The final window of an
+  episode may be shorter unless `drop_last=True`.
+- **`stride`** — frames between window starts; defaults to `window_size`
+  (non-overlapping). `stride < window_size` yields overlapping windows.
+- **`label`** — label field resolved per window (same vocabulary as
+  `HaptData.to_torch`: `material`, `material_category`, `object_name`,
+  `object_category`, `task`, `speed_mm_s`, `normal_force_N`,
+  `approach_angle_deg`, `temperature_C`, `humidity_pct`, `interaction_type`,
+  `sensor_type`). String-valued fields are encoded to class indices with one
+  **dataset-wide** mapping (same value → same class across every source);
+  numeric fields are returned as float tensors (regression).
+- **`transform` / `target_transform`** — callables applied to each window /
+  label tensor.
+- **`dtype`** — target dtype for window tensors (default `'float32'`).
+- **`drop_last`** — drop each source's final partial window. Recommended for
+  fixed-length DataLoader batches.
+- **`use_unified`** — window the `unified/` cross-sensor representation
+  instead of raw frames. All sources must carry a unified array (else
+  `ValueError` at construction).
+
+```python
+import haptix
+from torch.utils.data import DataLoader
+
+ds = haptix.WindowedDataset(
+    ["ep1.hapt", "ep2.hapt", "ep3.hapt"],   # one episode per file
+    window_size=32,
+    stride=16,
+    label="material",                        # classification
+)
+loader = DataLoader(ds, batch_size=16, shuffle=True, num_workers=2, drop_last=True)
+for X, y in loader:                          # X: [B, 32, ...], y: [B]
+    ...
+```
+
+Additional members:
+
+- `len(ds)` / `ds.n_windows` — total window count across all episodes (no
+  I/O; window counts come from metadata).
+- `ds.n_sources`, `ds.source_paths` — episode count and underlying paths
+  (`None` for in-memory `HaptData` sources).
+- `ds.label_classes` — classification mapping `value -> class index`, or
+  `None` for regression / no label.
+- `ds.close()` / context manager — closes archives the dataset opened.
+  Idempotent; accessing a closed dataset raises `RuntimeError`.
+- `TemporalDataset` — alias of `WindowedDataset`.
+
+Design notes:
+
+- **Lazy raw reads.** Metadata (including label values) is read eagerly;
+  raw arrays stay on disk until `__getitem__`. Windows are read via the
+  archive slice helpers, *skipping* per-window SHA-256 — checksumming is a
+  verification concern, not a training-loop concern. Call `archive.verify()`
+  once per file to validate integrity.
+- **Worker-safe.** The dataset implements `__getstate__`/`__setstate__`
+  (archives become their paths), so `DataLoader(num_workers>0)` works on
+  platforms that default to the `spawn` start method (macOS, Windows). For
+  very long recordings prefer directory/zarr formats under multi-worker
+  loading (zip decompresses the full array per worker).
+- **Shape consistency** is validated at construction: all sources must share
+  the same per-frame shape (or unified embedding dim when
+  `use_unified=True`), so DataLoader batching fails fast with a clear error.
+
+See [`examples/windowed_training.py`](../examples/windowed_training.py) for
+a complete training loop (synthetic episodes → `.hapt` → `WindowedDataset` →
+`DataLoader` → MLP classifier, ~seconds on CPU).
 
 ---
 
