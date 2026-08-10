@@ -18,6 +18,7 @@ from haptix.encoders import (
     register_encoder,
 )
 from haptix.io import ChecksumError, HaptFormatError, load, save
+from haptix.recorder import HaptRecorder
 from haptix.sensors import get_sensor, list_sensors, register
 from haptix.streaming import HaptArchive, open_archive
 from haptix.unified import CrossModalEncoder, SharedForceEncoder, UnifiedEncoder
@@ -29,6 +30,7 @@ __all__ = [
     "HaptArchive",
     "HaptData",
     "HaptFormatError",
+    "HaptRecorder",
     "Provenance",
     "RawData",
     "SensorEncoder",

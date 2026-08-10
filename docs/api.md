@@ -457,6 +457,55 @@ for very long recordings).
 
 ---
 
+## Real-Time Collection Module (`haptix.recorder`)
+
+### `class HaptRecorder`
+
+Incremental `.hapt` writer for live capture. Append frames one at a time
+(any source that yields a frame array per step — a camera, a taxel array,
+a simulated stream); on `close()` it finalizes a fully valid `.hapt`
+directory identical to what `save()` writes.
+
+```python
+import haptix
+from haptix.core import InteractionMeta, Labels, SensorMeta
+
+rec = haptix.HaptRecorder(
+    "live.hapt",
+    sensor=SensorMeta(type="DIGIT_v2", serial="cam-001"),
+    modality="imaging",
+    sampling_rate_hz=30.0,
+    interaction=InteractionMeta(type="pressing"),
+    labels=Labels(task="live_demo"),
+)
+try:
+    for frame in camera_stream():      # generator of [H, W, C] arrays
+        rec.write_frame(frame, timestamp=...)   # or (frame, timestamp) tuple
+finally:
+    rec.close()                        # -> valid .hapt
+
+data = haptix.load("live.hapt")        # checksum-verified round-trip
+```
+
+- **`write_frame(frame, timestamp=None) -> int`** — append one frame
+  (first frame fixes dtype/shape; later mismatches raise `ValueError`),
+  returning the running frame count.
+- **`write(frames, timestamps=None) -> int`** — batch append.
+- **`flush()`** — force buffered frames to a chunk file.
+- **`close() -> Path`** — stream chunks into `raw/data.npy` (memory-bounded,
+  never holds the full array), write checksum/manifest/labels/provenance,
+  remove chunks. Idempotent; raises `ValueError` if empty.
+- Properties: `n_frames`, `is_open`. Context manager supported.
+
+Design: frames buffer and flush to `raw/chunks/*.npy` (O(buffer) memory,
+crash-safe); a partial capture leaves recoverable chunk files. Per-frame
+`timestamps_s` accumulate and are written to the manifest.
+
+See [`examples/live_capture.py`](../examples/live_capture.py) for a
+synthetic-sensor demo (swap in real hardware, recording path is identical).
+
+---
+
 ## Unified Encoders Module (`haptix.unified`)
 
 ### `class UnifiedEncoder` (Protocol)

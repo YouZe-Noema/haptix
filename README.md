@@ -172,7 +172,7 @@ Python 3.10+ required.
 
 ### Beyond
 - [x] Streaming / temporal windowing for long recordings — `haptix.open_archive()` (lazy, memory-mapped dir / chunked zarr / zip), `iter_windows()` / `window()` / `verify()` ([`docs/api.md`](docs/api.md))
-- [ ] Real-time data collection toolkit
+- [x] Real-time data collection toolkit — `haptix.HaptRecorder` incremental capture → valid `.hapt` on close ([`examples/live_capture.py`](examples/live_capture.py))
 - [ ] Integration with robot learning frameworks (Diffusion Policy, ACT, etc.)
 - [ ] Tactile data browser / visualization tool
 - [ ] Community sensor adapter contributions
