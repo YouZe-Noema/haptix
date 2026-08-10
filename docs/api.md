@@ -409,6 +409,54 @@ contributors for weight-file verification.
 
 ---
 
+## Streaming & Windowing Module (`haptix.streaming`)
+
+Long recordings (hours of 30 Hz tactile data → 100K+ frames) cannot be
+loaded eagerly. `open_archive()` is the lazy counterpart to `load()`: it
+reads metadata only and materializes raw frames on demand.
+
+### `open_archive(path) -> HaptArchive`
+
+Opens a `.hapt` directory, `.hapt.zarr`, or `.hapt.zip` (auto-detected)
+without loading the raw array. Use as a context manager:
+
+```python
+import haptix
+
+with haptix.open_archive("long.hapt") as arc:
+    print(arc.n_frames, arc.shape)              # metadata only
+    for win in arc.iter_windows(window_size=256, stride=128):
+        loader = DataLoader(win.to_torch(batch_size=32, label="material"))
+        ...
+```
+
+### `class HaptArchive`
+
+Lazy handle exposing recording metadata (`sensor`, `modality`,
+`sampling_rate_hz`, `interaction`, `labels`, `provenance`,
+`coordinate_frame`, `version`, `shape`, `dtype`, `n_frames`,
+`timestamps_s`) and windowing:
+
+- **`window(start, stop) -> HaptData`** — materialize frames `[start, stop)`
+  as a standalone `HaptData` (own checksum, sliced timestamps, unified
+  slice when present). Saveable and independently verifiable.
+- **`iter_windows(window_size, stride=None, *, start=0, stop=None,
+  drop_last=False) -> Iterator[HaptData]`** — temporal windows along the
+  time axis; `stride` defaults to `window_size` (non-overlapping);
+  `stride < window_size` yields overlapping windows.
+- **`window_count(...)`** — how many windows iteration yields, without I/O.
+- **`frame_index_at(time_s) -> int`** — frame nearest a recording time
+  (uses `timestamps_s` when present, else `rate_hz` spacing).
+- **`verify() -> bool`** — streaming SHA-256 verification (memory-bounded;
+  raises `ChecksumError` on mismatch, matching `load()` semantics).
+
+Memory behavior by format: directory → memory-mapped (`O(window)` per
+window); zarr → chunked reads (`O(window)` + decompression); zip → raw
+member decompressed once at open (`O(full array)` — prefer directory/zarr
+for very long recordings).
+
+---
+
 ## Unified Encoders Module (`haptix.unified`)
 
 ### `class UnifiedEncoder` (Protocol)

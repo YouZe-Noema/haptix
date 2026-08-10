@@ -19,12 +19,14 @@ from haptix.encoders import (
 )
 from haptix.io import ChecksumError, HaptFormatError, load, save
 from haptix.sensors import get_sensor, list_sensors, register
+from haptix.streaming import HaptArchive, open_archive
 from haptix.unified import CrossModalEncoder, SharedForceEncoder, UnifiedEncoder
 
 __version__ = "0.2.0"
 __all__ = [
     "ChecksumError",
     "CrossModalEncoder",
+    "HaptArchive",
     "HaptData",
     "HaptFormatError",
     "Provenance",
@@ -46,6 +48,7 @@ __all__ = [
     "list_sensors",
     "load",
     "load_trained",
+    "open_archive",
     "register",
     "register_encoder",
     "save",

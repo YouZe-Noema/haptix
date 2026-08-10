@@ -171,7 +171,7 @@ Python 3.10+ required.
 - [ ] Foundation model for tactile data
 
 ### Beyond
-- [ ] Streaming / temporal windowing for long recordings
+- [x] Streaming / temporal windowing for long recordings — `haptix.open_archive()` (lazy, memory-mapped dir / chunked zarr / zip), `iter_windows()` / `window()` / `verify()` ([`docs/api.md`](docs/api.md))
 - [ ] Real-time data collection toolkit
 - [ ] Integration with robot learning frameworks (Diffusion Policy, ACT, etc.)
 - [ ] Tactile data browser / visualization tool
