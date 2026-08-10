@@ -33,7 +33,13 @@ from haptix.encoders.base import (
 if TYPE_CHECKING:  # pragma: no cover - runtime imports are lazy
     from haptix.encoders.base import _BaseSensorEncoder
 
-__all__ = ["SensorEncoder", "get_encoder", "list_encoders", "register_encoder"]
+__all__ = [
+    "SensorEncoder",
+    "get_encoder",
+    "list_encoders",
+    "load_trained",
+    "register_encoder",
+]
 
 # Registry of available encoders, keyed by sensor type.
 _registry: dict[str, type["_BaseSensorEncoder"]] = {}
@@ -138,3 +144,49 @@ def list_encoders() -> list[str]:
     """
     _lazy_import_encoders()
     return list(_registry.keys())
+
+
+def load_trained(sensor_type: str, weights_dir: str | None = None) -> SensorEncoder:
+    """Load a trained encoder's weights from a local ``.npz`` file.
+
+    Returns the registered encoder for *sensor_type* with learned weights
+    loaded (``trained is True``). Looks for
+    ``<weights_dir>/<sensor_type>_v1.0.npz`` (default weights dir:
+    ``haptix/encoders/weights/``, the gitignored weights home).
+
+    Parameters
+    ----------
+    sensor_type : str
+        Sensor family name, e.g. ``"GelSight"``.
+    weights_dir : str, optional
+        Directory holding trained weight files. Defaults to
+        ``haptix/encoders/weights/``.
+
+    Returns
+    -------
+    SensorEncoder
+        A trained, ready-to-encode encoder instance.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no trained weight file exists for *sensor_type* (the registry
+        entry is still served untrained via :func:`get_encoder`).
+    """
+    from pathlib import Path
+
+    _lazy_import_encoders()
+    if sensor_type not in _registry:
+        raise FileNotFoundError(
+            f"No registered encoder for '{sensor_type}' — nothing to load trained weights for"
+        )
+    if weights_dir is None:
+        weights_dir = str(Path(__file__).resolve().parent / "weights")
+    weights_path = Path(weights_dir) / f"{sensor_type}_v1.0.npz"
+    if not weights_path.is_file():
+        raise FileNotFoundError(
+            f"No trained weights for '{sensor_type}' at {weights_path}. "
+            "Train one with encoder.fit(records) + encoder.save(path), or "
+            "fetch published weights via the dataset catalog."
+        )
+    return _registry[sensor_type].load(weights_path)

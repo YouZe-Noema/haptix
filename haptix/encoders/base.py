@@ -77,9 +77,14 @@ class SensorEncoder(Protocol):
     modality: str  # "imaging" | "dynamic" | "force" | "multimodal"
     embedding_dim: int  # fixed output dim; 256 imaging / 128 dynamic
     version: str  # "encoders/gelsight/v0.1"
+    trained: bool  # False until fit()/load() supplies learned weights
 
     def encode(self, data: HaptData) -> np.ndarray:
         """[T, ...] -> [T, embedding_dim]. Deterministic."""
+        ...
+
+    def fit(self, records: list[HaptData], label_key: str = "material") -> "SensorEncoder":
+        """Fit a learned linear projection from labeled records (optional)."""
         ...
 
     def save(self, path: Path) -> None:
@@ -89,6 +94,10 @@ class SensorEncoder(Protocol):
     @classmethod
     def load(cls, path: Path) -> "SensorEncoder":
         """Load weights from .npz, returning a ready-to-encode instance."""
+        ...
+
+    def benchmark(self, dataset: str = "unavailable") -> dict:
+        """Structured report: dataset, metric, score, split (contributor contract)."""
         ...
 
 
@@ -163,28 +172,93 @@ def _pad_to_dim(arr: np.ndarray, target_dim: int) -> np.ndarray:
     return arr[:, :target_dim]
 
 
+def _l2_normalize_rows(arr: np.ndarray) -> np.ndarray:
+    """L2-normalize each row of a 2D array.
+
+    Zero rows are left as-is (norm set to 1 to avoid division by zero),
+    matching ``haptix.unified._l2_normalize_rows``.
+    """
+    out = arr.astype(np.float64, copy=True)
+    norms = np.linalg.norm(out, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return out / norms
+
+
+def _whitening_projection(features: np.ndarray, reg: float = 1e-6) -> np.ndarray:
+    """PCA whitening matrix for centered feature rows.
+
+    Returns ``W_w`` (D, D) such that ``(X - mean) @ W_w`` has identity
+    covariance. Computed from the SVD of the centered sample matrix, so it
+    is deterministic and handles n_samples < D (fewer records than dims)
+    gracefully: null directions stay null (regularized).
+    """
+    Xc = features - features.mean(axis=0)
+    _, s, Vt = np.linalg.svd(Xc, full_matrices=False)
+    inv_s = 1.0 / (s + reg)
+    return (Vt.T * inv_s) @ Vt
+
+
+def _class_rotation(whitened: np.ndarray, labels: list[str], reg: float = 1e-9) -> np.ndarray:
+    """Orthonormal rotation that concentrates class structure (LDA-style).
+
+    Computes the between-class scatter of the whitened samples and returns
+    its eigenvector basis (D, D), with columns sorted by **descending**
+    eigenvalue so class-discriminative directions come first. Columns
+    beyond the effective rank (``min(C-1, D)``) are zeroed: the projection
+    ``(X - mean) @ W_w @ R`` therefore lives almost entirely in the
+    class-aligned subspace, and cosine/Euclidean distance on the full
+    embedding reflects class structure instead of whitening noise.
+
+    With fewer than 2 classes (or all-same labels) returns the identity:
+    pure whitening, no class rotation.
+    """
+    unique = sorted(set(labels))
+    if len(unique) < 2:
+        return np.eye(whitened.shape[1], dtype=np.float64)
+    # Between-class scatter in whitened space.
+    S_B = np.zeros((whitened.shape[1], whitened.shape[1]), dtype=np.float64)
+    for lab in unique:
+        idx = [i for i, lab_i in enumerate(labels) if lab_i == lab]
+        centroid = whitened[idx].mean(axis=0)
+        S_B += len(idx) * np.outer(centroid, centroid)
+    S_B /= len(labels)
+    w, V = np.linalg.eigh((S_B + S_B.T) / 2.0 + reg * np.eye(S_B.shape[0]))
+    # eigh returns ascending eigenvalues; flip so class dirs come first.
+    V = V[:, ::-1]
+    rank = min(len(unique) - 1, whitened.shape[1])
+    if rank < whitened.shape[1]:
+        V[:, rank:] = 0.0
+    return V  # orthonormal basis, class-aligned leading columns (rest zeroed)
+
+
 class _BaseSensorEncoder:
-    """Shared implementation for deterministic (untrained) per-sensor encoders.
+    """Shared implementation for deterministic per-sensor encoders.
 
     Subclasses declare ``sensor_type``, ``modality``, ``embedding_dim`` and
-    ``version`` and are registered via ``@register_encoder``. ``encode()``
-    is a deterministic untrained projection:
+    ``version`` and are registered via ``@register_encoder``.
 
-    - imaging sensors: grayscale Lanczos resize to a
-      ``sqrt(embedding_dim)`` grid, flattened to exactly [T, D];
-    - dynamic sensors: pad/truncate features to exactly [T, D].
+    Two modes:
 
-    Trained weights replace this projection in a later version; the fixed
-    output dim is the registry contract. ``save()``/``load()`` serialize
-    the config (no learned weights yet), so a loaded encoder is an
-    equivalent untrained instance.
+    - **Untrained** (default): ``encode()`` is a deterministic projection —
+      imaging sensors grayscale-Lanczos-resize to a ``sqrt(embedding_dim)``
+      grid flattened to exactly [T, D]; dynamic sensors pad/truncate
+      features to exactly [T, D].
+    - **Trained**: after ``fit(records)`` (or ``load()`` of a saved weight
+      file), ``encode()`` applies a learned linear projection
+      ``(features - mean) @ W`` — PCA whitening followed by an
+      LDA-style class-aligned rotation (docs/encoder-registry.md §6). The
+      projection is pure numpy, deterministic, and serializable to a single
+      ``.npz`` (``save()``/``load()``). ``trained`` is ``True`` only when
+      learned weights are present, so callers can always distinguish
+      placeholder embeddings from learned ones.
     """
 
     sensor_type: str = ""
     modality: str = "dynamic"
     embedding_dim: int = _DYNAMIC_DIM
     version: str = ""
-    trained: ClassVar[bool] = False
+    # Plain class attribute (not ClassVar): fit()/load() set it per-instance.
+    trained: bool = False
 
     def __init__(self, embedding_dim: int | None = None):
         """Create an encoder instance.
@@ -197,44 +271,233 @@ class _BaseSensorEncoder:
         """
         if embedding_dim is not None:
             self.embedding_dim = int(embedding_dim)
+        # Learned weights (None until fit()/load()).
+        self._mean: np.ndarray | None = None  # (D,) centering vector
+        self._W: np.ndarray | None = None  # (D, D) whitening @ rotation
+        self._benchmark_report: dict | None = None  # populated by fit()
 
-    def encode(self, data: HaptData) -> np.ndarray:
-        """Encode HaptData into a fixed-dimensional embedding [T, D].
+    # ── Feature extraction (shared by encode/fit) ───────────────────────
 
-        Deterministic: same input -> same output. The output dim is
-        ``self.embedding_dim`` regardless of the input shape.
-        """
+    def _extract_features(self, data: HaptData) -> np.ndarray:
+        """[T, ...] -> [T, D] raw features (pre-projection)."""
         arr = data.raw.array.astype(np.float32)
         if self.modality == "imaging":
             return _encode_imaging(arr, self.embedding_dim)
         return _encode_dynamic(arr, self.embedding_dim)
 
-    def save(self, path: Path) -> None:
-        """Serialize config to a single .npz file.
+    # ── Training ────────────────────────────────────────────────────────
 
-        Untrained encoders have no learned weights, so this writes the
-        config (sensor_type, modality, embedding_dim, version). A future
-        trained version appends weight arrays to the same file.
+    def fit(
+        self,
+        records: list[HaptData],
+        label_key: str = "material",
+        seed: int = 0,
+    ) -> "_BaseSensorEncoder":
+        """Fit a learned linear projection from labeled records.
+
+        Learns ``mean`` + ``W`` (PCA whitening followed by an LDA-style
+        class-aligned rotation, docs/encoder-registry.md §6) so that
+        same-label records land close together in the embedding space.
+        Pure numpy, deterministic.
+
+        Features are extracted **per frame** (matching ``encode()``), so a
+        record with 80 frames contributes 80 samples. The benchmark report
+        uses leave-one-record-out nearest-centroid accuracy — each record
+        is scored against centroids fit on the remaining records, so
+        held-out generalization is honest even with few records.
+
+        Parameters
+        ----------
+        records : list[HaptData]
+            Labeled records from this sensor family. Records without the
+            label fall back to ``object_name`` then ``"unknown"`` (they
+            still contribute to whitening).
+        label_key : str, default "material"
+            Which :class:`Labels` field to group by (``material``,
+            ``material_category``, ``object_name``, ``object_category``).
+        seed : int, default 0
+            Kept for API parity — the training path is fully deterministic.
+
+        Returns
+        -------
+        _BaseSensorEncoder
+            Self, fitted.
         """
-        np.savez(
-            path,
-            sensor_type=self.sensor_type,
-            modality=self.modality,
-            embedding_dim=self.embedding_dim,
-            version=self.version,
-            trained=self.trained,
-        )
+        if not records:
+            raise ValueError("fit() requires at least one HaptData record")
+
+        feats: list[np.ndarray] = []
+        rec_labels: list[str] = []
+        rec_sizes: list[int] = []
+        for rec in records:
+            label = self._record_label(rec, label_key)
+            feat = self._extract_features(rec)  # (T, D) per-frame features
+            feats.append(feat)
+            rec_labels.append(label)
+            rec_sizes.append(feat.shape[0])
+        X = np.concatenate(feats, axis=0).astype(np.float64)  # (n, D)
+        # Per-frame label array (one label per timestep of each record).
+        labels: list[str] = []
+        for lab, size in zip(rec_labels, rec_sizes):
+            labels.extend([lab] * size)
+
+        self._mean = X.mean(axis=0).astype(np.float64)
+
+        # PCA whitening: (X - mean) @ W_w has identity covariance.
+        W_w = _whitening_projection(X - self._mean)
+
+        # Class-aligned rotation in whitened space.
+        whitened = (X - self._mean) @ W_w
+        R = _class_rotation(whitened, labels)
+        self._W = (W_w @ R).astype(np.float64)  # (D, D)
+
+        # Benchmark: honest leave-one-record-out nearest-centroid accuracy.
+        # Each fold REFITS the projection on the remaining records only
+        # (whitening + class rotation), so the eval record never leaks into
+        # the projection. The shipped ``self._W`` is fit on ALL records (the
+        # usual "final model" practice) — the benchmark reports the honest
+        # generalization estimate, which is strictly harder.
+        unique = sorted(set(rec_labels))
+        if len(unique) < 2:
+            # Unsupervised: mean absolute off-diagonal correlation before vs
+            # after whitening. Lower is better (0 = fully decorrelated).
+            # Constant dimensions (e.g. zero-padded dynamic features) are
+            # excluded, and NaN (constant feature) is treated as 0 corr.
+            def _mean_offdiag_corr(M: np.ndarray) -> float:
+                std = M.std(axis=1)
+                keep = std > 1e-12
+                if keep.sum() < 2:
+                    return 0.0
+                C = np.corrcoef(M[keep])
+                off = np.abs(C - np.eye(C.shape[0]))
+                return float(np.nanmean(off))
+
+            raw_off = _mean_offdiag_corr(X.T)
+            whitened_all = (X - self._mean) @ self._W
+            wh_off = _mean_offdiag_corr(whitened_all.T)
+            self._benchmark_report = {
+                "dataset": f"fit({len(records)} records, {len(unique)} classes, {len(X)} frames)",
+                "metric": "whitening_decorrelation",
+                "score": round(float(wh_off), 4),
+                "split": "full corpus (unsupervised — no labels)",
+                "note": (
+                    f"mean |off-diagonal corr| {raw_off:.3f} -> {wh_off:.3f} "
+                    "(lower is better; 0 = fully decorrelated)"
+                ),
+            }
+        else:
+            correct = 0
+            total = 0
+            for i, lab in enumerate(rec_labels):
+                lo = sum(rec_sizes[:i])
+                hi = lo + rec_sizes[i]
+                mask = np.ones(len(X), dtype=bool)
+                mask[lo:hi] = False
+                Xtr, ytr = X[mask], np.asarray(labels)[mask]
+                # Refit projection on train records only (honest fold).
+                mean_fold = Xtr.mean(axis=0)
+                Ww_fold = _whitening_projection(Xtr - mean_fold)
+                R_fold = _class_rotation((Xtr - mean_fold) @ Ww_fold, list(ytr))
+                W_fold = Ww_fold @ R_fold
+                # Centroids from the same train records.
+                centroids: dict[str, np.ndarray] = {}
+                for c in unique:
+                    idx = np.where(ytr == c)[0]
+                    if len(idx):
+                        emb = _l2_normalize_rows((Xtr[idx] - mean_fold) @ W_fold)
+                        centroids[c] = emb.mean(axis=0)
+                if not centroids:
+                    continue
+                emb = _l2_normalize_rows((X[lo:hi] - mean_fold) @ W_fold)
+                for row in emb:
+                    total += 1
+                    best_sim = -np.inf
+                    best_label = ""
+                    for c, cent in centroids.items():
+                        sim = float(row @ cent / (np.linalg.norm(cent) + 1e-12))
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_label = c
+                    if best_label == lab:
+                        correct += 1
+            acc = correct / max(1, total)
+            self._benchmark_report = {
+                "dataset": f"fit({len(records)} records, {len(unique)} classes, {len(X)} frames)",
+                "metric": "nearest_centroid_accuracy",
+                "score": round(float(acc), 4),
+                "split": "leave-one-record-out, per-fold refit "
+                "(projection refit on train records each fold)",
+                "note": "honest generalization on the fit corpus — real benchmarks "
+                "come from public datasets (docs/encoder-registry.md §4)",
+            }
+
+        # Trained encoders bump the version (e.g. encoders/gelsight/v1.0).
+        base = self.version.rsplit("/", 1)[0]
+        self.version = f"{base}/v1.0"
+        self.trained = True  # instance attr shadows the ClassVar
+        return self
+
+    @staticmethod
+    def _record_label(data: HaptData, label_key: str) -> str:
+        """Extract the grouping label for a record, with fallbacks."""
+        labels = data.labels
+        if labels is not None:
+            primary = getattr(labels, label_key, None)
+            if primary:
+                return str(primary)
+            if labels.object_name:
+                return labels.object_name
+        return "unknown"
+
+    # ── Encoding ────────────────────────────────────────────────────────
+
+    def encode(self, data: HaptData) -> np.ndarray:
+        """Encode HaptData into a fixed-dimensional embedding [T, D].
+
+        Deterministic: same input -> same output. The output dim is
+        ``self.embedding_dim`` regardless of the input shape. When trained
+        weights are present the raw features pass through the learned
+        projection; otherwise the untrained deterministic projection is
+        used.
+        """
+        feat = self._extract_features(data)
+        if self._W is not None and self._mean is not None:
+            emb = (feat - self._mean) @ self._W
+            return _l2_normalize_rows(emb).astype(np.float32)
+        return feat
+
+    def save(self, path: Path) -> None:
+        """Serialize config (+ learned weights when trained) to one .npz."""
+        kwargs: dict = {
+            "sensor_type": self.sensor_type,
+            "modality": self.modality,
+            "embedding_dim": self.embedding_dim,
+            "version": self.version,
+            "trained": self.trained,
+        }
+        if self._mean is not None and self._W is not None:
+            kwargs["mean"] = self._mean
+            kwargs["W"] = self._W
+        if self._benchmark_report is not None:
+            import json
+
+            kwargs["benchmark"] = np.frombuffer(
+                json.dumps(self._benchmark_report).encode("utf-8"), dtype=np.uint8
+            )
+        np.savez(path, **kwargs)
 
     @classmethod
     def load(cls, path: Path) -> "_BaseSensorEncoder":
-        """Load config from .npz, returning a ready-to-encode instance.
+        """Load config (+ learned weights) from .npz.
 
         Raises
         ------
         ValueError
             If the file was saved by a different encoder class
-            (``sensor_type`` mismatch).
+            (``sensor_type`` mismatch) or is not a haptix encoder file.
         """
+        import json
+
         with np.load(path, allow_pickle=False) as z:
             files = set(z.files)
             if "embedding_dim" not in files:
@@ -247,16 +510,25 @@ class _BaseSensorEncoder:
             obj = cls(embedding_dim=int(z["embedding_dim"]))
             if "version" in files:
                 obj.version = str(z["version"])
+            if "mean" in files and "W" in files:
+                obj._mean = z["mean"].astype(np.float64)
+                obj._W = z["W"].astype(np.float64)
+                obj.trained = True  # instance attr shadows the ClassVar
+            elif "trained" in files and bool(z["trained"]):
+                obj.trained = True
+            if "benchmark" in files:
+                obj._benchmark_report = json.loads(z["benchmark"].tobytes().decode("utf-8"))
         return obj
 
     def benchmark(self, dataset: str = "unavailable") -> dict:
         """Return a structured benchmark report (contributor contract).
 
-        Untrained encoders cannot be meaningfully evaluated, so the score
-        is ``None`` until trained weights (or a ``fit()`` step) exist.
-        Trained contributions must return dataset, metric, score, split
-        (docs/encoder-registry.md §4).
+        Trained encoders return the report computed at fit time (dataset,
+        metric, score, split). Untrained encoders report ``score=None``
+        until trained weights (or a ``fit()`` step) exist.
         """
+        if self._benchmark_report is not None:
+            return dict(self._benchmark_report)
         return {
             "dataset": dataset,
             "metric": "unavailable",
@@ -291,6 +563,20 @@ class SurrogateEncoder:
         if self.modality == "imaging":
             return _encode_imaging(arr, self.embedding_dim)
         return _encode_dynamic(arr, self.embedding_dim)
+
+    def fit(self, records: list[HaptData], label_key: str = "material") -> "SurrogateEncoder":
+        """Not supported: the surrogate is a placeholder, not a trainable encoder.
+
+        Raises
+        ------
+        NotImplementedError
+            Always. Train a registered per-sensor encoder (``fit()`` on
+            ``get_encoder(sensor_type)``) and save/load its weights instead.
+        """
+        raise NotImplementedError(
+            "SurrogateEncoder is a deterministic placeholder and cannot be trained. "
+            "Use a registered per-sensor encoder (get_encoder(sensor_type).fit(records))."
+        )
 
     def save(self, path: Path) -> None:
         """Serialize config to a single .npz file."""

@@ -15,6 +15,7 @@ from haptix.encoders import (
     SensorEncoder,
     get_encoder,
     list_encoders,
+    load_trained,
     register_encoder,
 )
 from haptix.encoders.base import (
@@ -311,6 +312,146 @@ class TestBenchmark:
     def test_surrogate_benchmark(self):
         report = get_encoder("NoSuchSensor").benchmark()
         assert report["score"] is None
+
+
+# ── fit() / trained encoders ──────────────────────────────────────────
+
+
+class TestFit:
+    def test_fit_sets_trained_flag_and_version(self):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        assert enc.trained is True
+        assert enc.version == "encoders/gelsight/v1.0"
+
+    def test_fit_requires_records(self):
+        with pytest.raises(ValueError):
+            get_encoder("GelSight").fit([])
+
+    def test_fit_dynamic(self):
+        records = [_make_dynamic_hapt() for _ in range(12)]
+        enc = get_encoder("CoroCapacitive").fit(records, label_key="material")
+        assert enc.trained is True
+        assert enc.version == "encoders/coro/v1.0"
+        assert enc.embedding_dim == 128
+
+    def test_fit_benchmark_has_real_score(self):
+        # Separable synthetic classes -> honest held-out score in (0, 1].
+        records = []
+        for mat in ("metal", "wood", "rubber", "fabric", "plastic"):
+            for trial in range(6):
+                records.append(_make_imaging_hapt(sensor_type="GelSight"))
+                records[-1] = HaptData(
+                    raw=records[-1].raw,
+                    sensor=records[-1].sensor,
+                    modality=records[-1].modality,
+                    sampling_rate_hz=records[-1].sampling_rate_hz,
+                    interaction=records[-1].interaction,
+                    labels=Labels(material=mat),
+                )
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        report = enc.benchmark()
+        assert report["metric"] == "nearest_centroid_accuracy"
+        assert 0.0 <= report["score"] <= 1.0
+
+    def test_fit_unsupervised_reports_decorrelation(self):
+        records = [_make_dynamic_hapt(features=29) for _ in range(8)]
+        enc = get_encoder("CoroCapacitive").fit(records, label_key="material")
+        report = enc.benchmark()
+        # All records share material="aluminium" -> single class -> unsupervised.
+        assert report["metric"] == "whitening_decorrelation"
+        assert 0.0 <= report["score"] <= 1.0
+
+    def test_fit_label_fallback_to_object_name(self):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        records = [
+            HaptData(
+                raw=r.raw,
+                sensor=r.sensor,
+                modality=r.modality,
+                sampling_rate_hz=r.sampling_rate_hz,
+                interaction=r.interaction,
+                labels=Labels(object_name="can"),
+            )
+            for r in records
+        ]
+        enc = get_encoder("GelSight").fit(records, label_key="material")  # material is None
+        assert enc.trained is True  # falls back to object_name
+
+    def test_untrained_instance_stays_untrained(self):
+        enc = get_encoder("GelSight")
+        assert enc.trained is False
+
+    def test_trained_encode_is_deterministic(self):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        data = _make_imaging_hapt()
+        a = enc.encode(data)
+        b = enc.encode(data)
+        assert np.array_equal(a, b)
+
+    def test_trained_encode_shape_contract(self):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        emb = enc.encode(_make_imaging_hapt(num_frames=5))
+        assert emb.shape == (5, 256)
+
+
+class TestTrainedSaveLoad:
+    def test_trained_save_load_roundtrip(self, tmp_path):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        path = tmp_path / "GelSight_v1.0.npz"
+        enc.save(path)
+        loaded = type(enc).load(path)
+        assert loaded.trained is True
+        assert loaded.version == "encoders/gelsight/v1.0"
+        data = _make_imaging_hapt()
+        assert np.allclose(enc.encode(data), loaded.encode(data), atol=1e-6)
+        assert loaded.benchmark()["score"] == enc.benchmark()["score"]
+
+    def test_untrained_save_load_stays_untrained(self, tmp_path):
+        enc = get_encoder("CoroCapacitive")
+        path = tmp_path / "coro_v0.1.npz"
+        enc.save(path)
+        loaded = type(enc).load(path)
+        assert loaded.trained is False
+        assert loaded.version == "encoders/coro/v0.1"
+
+    def test_surrogate_save_load(self, tmp_path):
+        enc = get_encoder("NoSuchSensor")
+        path = tmp_path / "surrogate.npz"
+        enc.save(path)
+        loaded = SurrogateEncoder.load(path)
+        assert loaded.trained is False
+        assert loaded.embedding_dim == 128
+
+
+class TestLoadTrained:
+    def test_load_trained_returns_trained_encoder(self, tmp_path):
+        records = [_make_imaging_hapt() for _ in range(12)]
+        enc = get_encoder("GelSight").fit(records, label_key="material")
+        enc.save(tmp_path / "GelSight_v1.0.npz")
+        loaded = load_trained("GelSight", weights_dir=str(tmp_path))
+        assert loaded.trained is True
+        assert isinstance(loaded, SensorEncoder)
+
+    def test_load_trained_missing_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_trained("GelSight", weights_dir=str(tmp_path))
+
+    def test_load_trained_unknown_sensor_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            load_trained("NoSuchSensor", weights_dir=str(tmp_path))
+
+    def test_load_trained_top_level_export(self):
+        assert haptix.load_trained is load_trained
+        assert "load_trained" in haptix.__all__
+
+    def test_surrogate_fit_raises(self):
+        enc = get_encoder("NoSuchSensor")
+        with pytest.raises(NotImplementedError):
+            enc.fit([_make_dynamic_hapt()])
 
 
 # ── dim helpers ───────────────────────────────────────────────────────

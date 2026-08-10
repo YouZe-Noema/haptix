@@ -467,12 +467,15 @@ class SensorEncoder(Protocol):
     sensor_type: str      # "GelSight", "DIGIT", "CoroCapacitive", ...
     modality: str         # "imaging" | "dynamic" | "force" | "multimodal"
     embedding_dim: int    # fixed output dim; 256 imaging / 128 dynamic
-    version: str          # "encoders/gelsight/v0.1"
+    version: str          # "encoders/gelsight/v0.1" (untrained) / ".../v1.0" (trained)
+    trained: bool         # False until fit()/load() supplies learned weights
 
     def encode(self, data: HaptData) -> np.ndarray: ...   # [T, ...] -> [T, D]
+    def fit(self, records: list[HaptData], label_key: str = "material") -> ...: ...
     def save(self, path: Path) -> None: ...               # single .npz
     @classmethod
     def load(cls, path: Path) -> "SensorEncoder": ...     # ready-to-encode instance
+    def benchmark(self, dataset: str = "unavailable") -> dict: ...  # structured report
 ```
 
 `encode()` is deterministic: same input → same embedding. `isinstance(enc,
@@ -512,29 +515,74 @@ assert enc.version == "encoders/gelsight/v0.1"
 Lists sensor types with a registered encoder. Triggers lazy import of every
 module under `haptix/encoders/`.
 
-### Registered encoders (v0.1, untrained)
+### `load_trained(sensor_type, weights_dir=None) -> SensorEncoder`
 
-All five concrete encoders are deterministic **untrained** projections that
-honor the fixed-dim contract (`trained is False`): imaging sensors are
-grayscale-Lanczos-resized to a `sqrt(D)` grid and flattened to exactly
-`[T, D]`; dynamic sensors pad or crop features to exactly `[T, D]`. Trained
-weights (v1.0+) replace the projection; `save()`/`load()` serialize config
-today and will append weight arrays later.
+Loads a **trained** encoder (learned weights) from a local `.npz` file.
+Looks for `<weights_dir>/<sensor_type>_v1.0.npz`; the default weights dir is
+`haptix/encoders/weights/` (gitignored — the local weights home).
+
+```python
+enc = haptix.load_trained("GelSight")       # trained=True, encoders/gelsight/v1.0
+emb = enc.encode(haptix.load("sample.hapt"))  # learned projection applied
+```
+
+Raises `FileNotFoundError` if no trained weights exist for the sensor — the
+registry entry is still served untrained via `get_encoder()`. Train weights
+with `encoder.fit(records)` + `encoder.save(path)` (see
+[`examples/train_encoders.py`](../examples/train_encoders.py)).
+
+### Training encoders (`fit()`)
+
+Every registered encoder implements `fit(records, label_key="material")`:
+
+1. Extracts per-frame features (same path `encode()` uses).
+2. Learns `mean` + `W`: **PCA whitening** followed by an **LDA-style
+   class-aligned rotation** (pure numpy, deterministic).
+3. Sets `trained=True`, bumps `version` to `.../v1.0`, and computes an honest
+   **leave-one-record-out nearest-centroid benchmark** (per-fold refit — the
+   eval record never leaks into the projection). Unsupervised fits (single
+   class) report a `whitening_decorrelation` score instead.
+
+```python
+records = [haptix.load(p) for p in hapt_paths]     # labeled HaptData
+enc = haptix.get_encoder("GelSight").fit(records, label_key="material")
+enc.save("weights/GelSight_v1.0.npz")              # single .npz (mean, W, report)
+loaded = haptix.load_trained("GelSight")           # reload later
+```
+
+### Registered encoders (v0.1 untrained / v1.0 trained)
+
+All five concrete encoders honor the fixed-dim contract. Untrained
+(`trained is False`): imaging sensors are grayscale-Lanczos-resized to a
+`sqrt(D)` grid and flattened to exactly `[T, D]`; dynamic sensors pad or crop
+features to exactly `[T, D]`. Trained (`fit()`/`load_trained()`): the learned
+projection replaces the raw projection; the output dim never changes.
 
 | Encoder | sensor_type | Modality | dim | version |
 |---|---|---|---|---|
-| `GelSightEncoder` | GelSight | imaging | 256 | `encoders/gelsight/v0.1` |
-| `DIGITEncoder` | DIGIT | imaging | 256 | `encoders/digit/v0.1` |
-| `CoroCapacitiveEncoder` | CoroCapacitive | dynamic | 128 | `encoders/coro/v0.1` |
-| `BioTacSPEncoder` | BioTac_SP | dynamic | 128 | `encoders/biotac/v0.1` |
-| `TacTipEncoder` | TacTip | dynamic | 128 | `encoders/tactip/v0.1` |
+| `GelSightEncoder` | GelSight | imaging | 256 | `encoders/gelsight/v0.1` → `v1.0` |
+| `DIGITEncoder` | DIGIT | imaging | 256 | `encoders/digit/v0.1` → `v1.0` |
+| `CoroCapacitiveEncoder` | CoroCapacitive | dynamic | 128 | `encoders/coro/v0.1` → `v1.0` |
+| `BioTacSPEncoder` | BioTac_SP | dynamic | 128 | `encoders/biotac/v0.1` → `v1.0` |
+| `TacTipEncoder` | TacTip | dynamic | 128 | `encoders/tactip/v0.1` → `v1.0` |
+
+Weights trained on real data (2026-08-10, via
+[`examples/train_encoders.py`](../examples/train_encoders.py)):
+
+- **GelSight v1.0** — YCB-Sight real frames (6 objects × 80 frames, 24
+  temporal segments): 79.8% leave-one-record-out nearest-centroid accuracy.
+- **CoroCapacitive v1.0** — real Lab-CORO CSV (786 frames): whitening
+  decorrelates features (mean |off-diagonal corr| 0.180 → 0.000).
+
+Weights live in the gitignored `haptix/encoders/weights/` dir; publication to
+the Hugging Face Hub is a pending release decision (design doc §7).
 
 ### `benchmark()` (contributor contract)
 
 Every encoder implements `benchmark() -> dict` returning a structured report
 (`dataset`, `metric`, `score`, `split`). Untrained encoders report
-`score=None` with a note; a trained contribution is not "done" until its
-benchmark is reproducible (see the design doc §4).
+`score=None` with a note; trained encoders return the honest held-out report
+computed at `fit()` time (see the design doc §4).
 
 ---
 

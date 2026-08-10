@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from haptix.datasets import (
     cache_info,
     cached_datasets,
@@ -82,6 +84,36 @@ class TestCatalog:
             assert info["num_samples"] > 0
             # url should be a valid-looking URL
             assert info["url"].startswith("http")
+
+    def test_catalog_encoder_schema(self):
+        """The optional ``encoder`` block (weights_url/weights_sha256) is validated."""
+        from haptix.datasets.catalog import _CATALOG, _validate_catalog
+
+        # A well-formed encoder block passes validation (import-time check).
+        for name in list_datasets():
+            info = get_dataset_info(name)
+            if "encoder" in info:
+                enc = info["encoder"]
+                assert enc["weights_url"].startswith("http")
+                assert len(enc["weights_sha256"]) == 64
+
+        # Malformed encoder blocks are rejected by _validate_catalog.
+        saved = _CATALOG["coro_tactile"].get("encoder")
+        try:
+            _CATALOG["coro_tactile"]["encoder"] = {"weights_url": "https://x/y.npz"}
+            with pytest.raises(RuntimeError):
+                _validate_catalog()
+            _CATALOG["coro_tactile"]["encoder"] = {
+                "weights_url": "https://x/y.npz",
+                "weights_sha256": "not-hex",
+            }
+            with pytest.raises(RuntimeError):
+                _validate_catalog()
+        finally:
+            if saved is None:
+                _CATALOG["coro_tactile"].pop("encoder", None)
+            else:
+                _CATALOG["coro_tactile"]["encoder"] = saved
 
 
 class TestCacheManagement:

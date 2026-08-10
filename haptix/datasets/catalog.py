@@ -19,12 +19,15 @@ _DATASET_KEYS = {
     "homepage",
     "sha256",
     "provenance",
+    "encoder",
 }
 
-# Keys every catalog entry must have. ``sha256`` and ``provenance`` are
-# optional: only datasets we host ourselves (or have verified digests for)
-# carry a checksum.
-_REQUIRED_KEYS = _DATASET_KEYS - {"sha256", "provenance"}
+# Keys every catalog entry must have. ``sha256``, ``provenance`` and
+# ``encoder`` are optional: only datasets we host ourselves (or have verified
+# digests for) carry a checksum, and only datasets with published encoder
+# weights carry an ``encoder`` block (weights_url + weights_sha256,
+# docs/encoder-registry.md §7).
+_REQUIRED_KEYS = _DATASET_KEYS - {"sha256", "provenance", "encoder"}
 
 # SHA-256 of the hosted demo sample archive. Recompute with:
 #   shasum -a 256 haptix-demo-data-v0.1.tar.gz
@@ -191,6 +194,29 @@ def _validate_catalog() -> None:
             except ValueError:
                 raise RuntimeError(
                     f"Catalog entry {name!r}: sha256 must be a valid hex string"
+                ) from None
+        encoder = entry.get("encoder")
+        if encoder is not None:
+            if not isinstance(encoder, dict):
+                raise RuntimeError(f"Catalog entry {name!r}: encoder must be a dict")
+            if "weights_url" not in encoder or "weights_sha256" not in encoder:
+                raise RuntimeError(
+                    f"Catalog entry {name!r}: encoder must carry weights_url + weights_sha256"
+                )
+            if not encoder["weights_url"].startswith("http"):
+                raise RuntimeError(
+                    f"Catalog entry {name!r}: encoder.weights_url must start with http"
+                )
+            enc_sha = encoder["weights_sha256"]
+            if not isinstance(enc_sha, str) or len(enc_sha) != 64:
+                raise RuntimeError(
+                    f"Catalog entry {name!r}: encoder.weights_sha256 must be a 64-char hex string"
+                )
+            try:
+                int(enc_sha, 16)
+            except ValueError:
+                raise RuntimeError(
+                    f"Catalog entry {name!r}: encoder.weights_sha256 must be valid hex"
                 ) from None
 
 

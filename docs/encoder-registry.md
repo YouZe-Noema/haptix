@@ -1,7 +1,13 @@
 # Encoder Registry — Design Note (v0.1, implemented 2026-08-09)
 
 > **Status:** Design implemented. Registry + untrained per-sensor encoders
-> landed in `haptix/encoders/` (commit df82b8b); trained weights pending.
+> landed in `haptix/encoders/` (commit df82b8b); **trained weights landed
+> 2026-08-10** — `fit()` machinery (PCA whitening + class-aligned rotation,
+> pure numpy), honest leave-one-record-out benchmarks, and v1.0 weights for
+> GelSight (YCB-Sight real, 79.8% LOO) + CoroCapacitive (real CSV,
+> whitening decorrelation) via `examples/train_encoders.py`. Weights live in
+> the gitignored `haptix/encoders/weights/` dir; **Hugging Face Hub
+> publication pending** (release decision, see §7).
 > **Strategy:** per-sensor encoders first, community-contributed; a foundation
 > model only when sensor coverage + alignment data justify it.
 > **Companion docs:** `docs/adapters.md` (sensor adapters), `docs/api.md`.
@@ -212,7 +218,20 @@ The community contribution path mirrors `docs/adapters.md`:
 
 Registry entries that ship without weights are still valid — they document
 the architecture and let users train the encoder on their own data
-(`encoder.fit(records)` reusing the `CrossModalEncoder` training loop).
+(`encoder.fit(records)` — implemented 2026-08-10, pure numpy: PCA whitening
++ LDA-style class-aligned rotation; see §6 below).
+
+**Trained weights landed (2026-08-10).** `examples/train_encoders.py` fits
+real-data weights and saves them to the gitignored `haptix/encoders/weights/`
+dir; `haptix.load_trained(sensor_type)` serves them:
+
+| Encoder | Training data | Benchmark |
+|---|---|---|
+| GelSight v1.0 | YCB-Sight real (6 objects × 80 frames, 24 temporal segments) | 79.8% leave-one-record-out nearest-centroid (per-fold refit) |
+| CoroCapacitive v1.0 | Lab-CORO real CSV (786 frames) | whitening decorrelation: mean \|off-diag corr\| 0.180 → 0.000 |
+
+Weights are serialized `.npz` (mean + W + benchmark report). HF Hub
+publication of these weights is a pending release decision (§7).
 
 ---
 
@@ -251,8 +270,25 @@ a frozen backbone), the default recipe is:
 
 The protocol does not mandate this — contributors may bring any backbone as
 long as `encode()` is deterministic and emits `[T, 256]`. The recipe is a
-convention documented in `docs/encoders.md` (this file, §7 extension), not an
-enforcement.
+convention documented here, not an enforcement.
+
+**v1.0 implemented recipe (2026-08-10):** the shipped trained encoders use a
+pure-numpy linear projection — PCA whitening followed by an LDA-style
+class-aligned rotation (between-class scatter eigendecomposition in whitened
+space, directions sorted by descending eigenvalue, rank truncated to
+`min(C-1, D)`):
+
+```python
+enc = haptix.get_encoder("GelSight").fit(records, label_key="material")
+emb = enc.encode(data)                    # (data - mean) @ W, L2-normalized rows
+enc.save("weights/GelSight_v1.0.npz")     # mean + W + benchmark report
+trained = haptix.load_trained("GelSight") # reload → trained=True
+```
+
+This is the minimal honest "trained" encoder: learned from real data,
+deterministic, serializable, and benchmarked (see §4 table). A torch-based
+CNN projector can replace the linear `W` later without breaking the contract
+— the protocol only requires deterministic `[T, D]` output.
 
 ---
 
