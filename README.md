@@ -134,6 +134,7 @@ L2 (sim-to-real, data augmentation) and L3 (downstream benchmarks) live above `.
 pip install haptix           # core (numpy, pillow, pandas, pyyaml)
 pip install haptix[torch]    # + PyTorch integration
 pip install haptix[jax]      # + JAX integration
+pip install haptix[browser]  # + tactile data browser (streamlit + plotly)
 pip install haptix[all]      # everything + h5py, zarr
 pip install haptix[dev]      # development (pytest, black, ruff, mypy)
 ```
@@ -180,7 +181,7 @@ Python 3.10+ required.
 - [x] Streaming / temporal windowing for long recordings — `haptix.open_archive()` (lazy, memory-mapped dir / chunked zarr / zip), `iter_windows()` / `window()` / `verify()` ([`docs/api.md`](docs/api.md))
 - [x] Real-time data collection toolkit — `haptix.HaptRecorder` incremental capture → valid `.hapt` on close ([`examples/live_capture.py`](examples/live_capture.py))
 - [x] Integration with robot learning frameworks (Diffusion Policy, ACT, etc.) — PyTorch-native `WindowedDataset` over `.hapt` episodes ([`docs/api.md`](docs/api.md), [`examples/windowed_training.py`](examples/windowed_training.py)); LeRobot adapter deferred to a later stage
-- [ ] Tactile data browser / visualization tool
+- [x] Tactile data browser / visualization tool — interactive episode gallery: browse `.hapt` / `.hapt.zip` / `.hapt.zarr`, scrub frames, inspect metadata / labels / provenance / unified, compare sensors ([`docs/browser.md`](docs/browser.md)); `pip install "haptix[browser]"` then `haptix-browser [DATA_DIR]`
 - [ ] Community sensor adapter contributions
 
 ---

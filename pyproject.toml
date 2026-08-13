@@ -29,6 +29,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = [
+    "streamlit>=1.30",
+    "plotly>=5.20",
+]
 torch = [
     "torch>=2.0",
     # torch <2.4 wheels were built against numpy 1.x; numpy 2.x breaks
@@ -38,6 +42,9 @@ torch = [
 jax = ["jax>=0.4"]
 all = ["haptix[torch,jax]", "h5py>=3.0", "zarr>=2.0"]
 dev = ["haptix[all]", "pytest>=7.0", "pytest-cov", "black", "ruff", "mypy"]
+
+[project.scripts]
+haptix-browser = "haptix.browser.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/YouZe-Noema/haptix"

@@ -1,5 +1,16 @@
 # haptix — Tactile Data Infrastructure
 
+from haptix.browser import (
+    episode_summary,
+    find_hapt_files,
+    frame_array,
+    frame_image,
+    frame_signals,
+    make_gallery_dataframe,
+    scan_directory,
+    signal_trace,
+    unified_trace,
+)
 from haptix.core import HaptData, Provenance, RawData, SensorMeta, Source
 from haptix.datasets import (
     cache_info,
@@ -45,6 +56,11 @@ __all__ = [
     "cached_datasets",
     "clear_cache",
     "download_dataset",
+    "episode_summary",
+    "find_hapt_files",
+    "frame_array",
+    "frame_image",
+    "frame_signals",
     "get_dataset_info",
     "get_encoder",
     "get_sensor",
@@ -53,9 +69,13 @@ __all__ = [
     "list_sensors",
     "load",
     "load_trained",
+    "make_gallery_dataframe",
     "open_archive",
     "register",
     "register_encoder",
     "save",
+    "scan_directory",
+    "signal_trace",
+    "unified_trace",
     "verify_checksum",
 ]

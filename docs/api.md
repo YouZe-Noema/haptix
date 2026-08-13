@@ -600,6 +600,86 @@ synthetic-sensor demo (swap in real hardware, recording path is identical).
 
 ---
 
+## Browser Module (`haptix.browser`)
+
+Tactile data browser — the roadmap "Beyond" item "Tactile data browser /
+visualization tool" (Streamlit form factor, `haptix[browser]` extra;
+guide: [`docs/browser.md`](browser.md)). The module has two layers:
+
+- **Library (pure)** — the functions below. Core deps only (numpy/Pillow),
+  testable in CI and reusable from notebooks/scripts.
+- **Web app** — `haptix/browser/app.py` (Streamlit + plotly), launched with
+  the `haptix-browser` console script or `streamlit run haptix/browser/app.py`.
+
+All accessor functions accept a `str` / `Path` or an already-open
+`HaptArchive`; paths are opened lazily and closed automatically.
+
+### `find_hapt_files(root, *, recursive=True) -> list[Path]`
+
+Discover haptix recordings under *root*: `.hapt` directories, `.hapt.zip` and
+`.hapt.zarr` files (a `.zip`/`.zarr` file only counts when its name carries
+`.hapt`). Hidden directories are skipped; recordings are leaves (never
+descended into). Raises `FileNotFoundError` if *root* is missing.
+
+### `scan_directory(root, *, recursive=True, max_episodes=None, verify=False) -> dict`
+
+Scan a directory and summarize every recording under it. Returns
+`{"root", "episodes": [summary, ...], "errors": [{"path", "error"}, ...]}`.
+Tolerant by design: a corrupt / unreadable recording is reported in `errors`
+instead of aborting the scan. `verify=True` stream-verifies each raw array
+(raises `ChecksumError` on mismatch, which lands in `errors`).
+
+### `episode_summary(path, *, verify=False) -> dict`
+
+Metadata-only summary of one recording (no raw materialization), with pure
+Python / JSON-compatible values:
+
+- identity: `path`, `name`, `format` (`dir`/`zarr`/`zip`), `size_bytes`
+- sensor: `sensor`, `serial`, `modality`
+- array: `n_frames`, `shape`, `shape_str`, `dtype`, `sampling_rate_hz`,
+  `duration_s`, `timestamps` (bool), `coordinate_frame`, `version`
+- labels: `material`, `material_category`, `object_name`, `object_category`,
+  `task`, `custom_tags`
+- interaction: `interaction_type`, `speed_mm_s`, `normal_force_N`,
+  `approach_angle_deg`, `temperature_C`, `humidity_pct`
+- provenance: `file_hash`, `derived_from`, `is_lossy`, `created`,
+  `created_by`, `source` (dict), `processing` (list[dict])
+- unified: `unified` (bool), `unified_method`, `unified_shape`
+
+### `make_gallery_dataframe(scan) -> pandas.DataFrame`
+
+Turn a `scan_directory` result into a display table (name, sensor, modality,
+frames, shape, sampling rate, material, object, task, unified, size MB,
+format, path). Empty scans yield an empty DataFrame with the same columns.
+
+### `frame_array(source, frame) -> np.ndarray`
+
+Return one frame as numpy: imaging → `[H, W, C]` (or `[H, W]` grayscale);
+dynamic → flattened channel vector `[F]`. Raises `IndexError` out of range.
+
+### `frame_signals(source, frame) -> np.ndarray`
+
+One frame's channel values flattened to 1-D (dynamic recordings).
+
+### `frame_image(source, frame, *, max_size=None) -> PIL.Image.Image`
+
+Render one imaging frame as a PIL image. Handles uint8 RGB/RGBA, grayscale,
+single-channel, and float arrays (float normalized per-frame to 0–255).
+`max_size` downscales keeping aspect ratio. Raises `ValueError` for
+non-image shapes (use `frame_signals` for dynamic recordings).
+
+### `signal_trace(source, channels=None, *, max_frames=None) -> dict`
+
+Full-length traces for dynamic recordings: `{"t", "y", "channels"}` where
+`t` is time in seconds (per-frame timestamps when present, else frame
+indices) and `y` is `[T, n_channels]`.
+
+### `unified_trace(source, *, max_frames=None) -> np.ndarray | None`
+
+The `unified/` cross-sensor embedding `[T, D]`, or `None` if absent.
+
+---
+
 ## Unified Encoders Module (`haptix.unified`)
 
 ### `class UnifiedEncoder` (Protocol)
