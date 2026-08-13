@@ -407,6 +407,22 @@ Streaming SHA-256 verification. Raises `ChecksumError` on mismatch, returns
 `True` on match. Used internally by `download_dataset` and available to
 contributors for weight-file verification.
 
+### `get_encoder_weights(sensor_type) -> dict | None`
+
+Published encoder-weights metadata for a sensor type, or `None` if the
+catalog has none (single source of truth: `_ENCODER_WEIGHTS` in
+`haptix/datasets/catalog.py`, docs/encoder-registry.md §7). Returns
+`weights_url` (HF Hub resolve URL), `weights_sha256`, `embedding_dim`,
+`benchmark`, `license`, `homepage`. Consumed by `load_trained()` for the
+checksum-verified auto-download; the `coro_tactile` and `ycb_slide` catalog
+entries carry matching `encoder` blocks (validated at import).
+
+```python
+info = haptix.get_encoder_weights("GelSight")
+# {'weights_url': 'https://huggingface.co/.../GelSight_v1.0.npz',
+#  'weights_sha256': '46e391ab...', 'embedding_dim': 256, ...}
+```
+
 ---
 
 ## Streaming & Windowing Module (`haptix.streaming`)
@@ -786,21 +802,30 @@ assert enc.version == "encoders/gelsight/v0.1"
 Lists sensor types with a registered encoder. Triggers lazy import of every
 module under `haptix/encoders/`.
 
-### `load_trained(sensor_type, weights_dir=None) -> SensorEncoder`
+### `load_trained(sensor_type, weights_dir=None, *, download=True, cache_dir=None) -> SensorEncoder`
 
 Loads a **trained** encoder (learned weights) from a local `.npz` file.
 Looks for `<weights_dir>/<sensor_type>_v1.0.npz`; the default weights dir is
 `haptix/encoders/weights/` (gitignored — the local weights home).
+
+**Auto-download (default).** When no local file exists and `download=True`,
+published weights are fetched from the Hugging Face Hub
+(`YouZe-Noema/haptix-encoders`, pinned in the dataset catalog via
+`get_encoder_weights`), SHA-256 verified, cached under
+`~/.haptix/cache/encoders/`, and loaded — so `load_trained()` works out of
+the box on a fresh install. `download=False` forces offline / strict-local
+behavior.
 
 ```python
 enc = haptix.load_trained("GelSight")       # trained=True, encoders/gelsight/v1.0
 emb = enc.encode(haptix.load("sample.hapt"))  # learned projection applied
 ```
 
-Raises `FileNotFoundError` if no trained weights exist for the sensor — the
-registry entry is still served untrained via `get_encoder()`. Train weights
-with `encoder.fit(records)` + `encoder.save(path)` (see
-[`examples/train_encoders.py`](../examples/train_encoders.py)).
+Raises `FileNotFoundError` if no trained weights exist for the sensor and
+none can be downloaded — the registry entry is still served untrained via
+`get_encoder()`. Raises `ChecksumError` if a download fails SHA-256
+verification. Train weights with `encoder.fit(records)` + `encoder.save(path)`
+(see [`examples/train_encoders.py`](../examples/train_encoders.py)).
 
 ### Training encoders (`fit()`)
 

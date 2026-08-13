@@ -18,6 +18,7 @@ from haptix.datasets import (
     clear_cache,
     download_dataset,
     get_dataset_info,
+    get_encoder_weights,
     list_datasets,
     verify_checksum,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "frame_signals",
     "get_dataset_info",
     "get_encoder",
+    "get_encoder_weights",
     "get_sensor",
     "list_datasets",
     "list_encoders",

@@ -146,7 +146,13 @@ def list_encoders() -> list[str]:
     return list(_registry.keys())
 
 
-def load_trained(sensor_type: str, weights_dir: str | None = None) -> SensorEncoder:
+def load_trained(
+    sensor_type: str,
+    weights_dir: str | None = None,
+    *,
+    download: bool = True,
+    cache_dir: str | None = None,
+) -> SensorEncoder:
     """Load a trained encoder's weights from a local ``.npz`` file.
 
     Returns the registered encoder for *sensor_type* with learned weights
@@ -154,13 +160,27 @@ def load_trained(sensor_type: str, weights_dir: str | None = None) -> SensorEnco
     ``<weights_dir>/<sensor_type>_v1.0.npz`` (default weights dir:
     ``haptix/encoders/weights/``, the gitignored weights home).
 
+    When no local file exists and ``download=True`` (the default), published
+    weights are fetched from the Hugging Face Hub
+    (``YouZe-Noema/haptix-encoders``, pinned in the dataset catalog —
+    ``docs/encoder-registry.md`` §7), SHA-256 verified, cached under
+    ``~/.haptix/cache/encoders/``, and loaded — so ``load_trained()`` works
+    out of the box on a fresh install.
+
     Parameters
     ----------
     sensor_type : str
         Sensor family name, e.g. ``"GelSight"``.
     weights_dir : str, optional
-        Directory holding trained weight files. Defaults to
+        Directory holding local trained weight files. Defaults to
         ``haptix/encoders/weights/``.
+    download : bool, default True
+        If no local weights exist, fetch published weights from the catalog
+        (HF Hub) into the cache dir. Pass ``False`` for offline / strict
+        local-only behavior.
+    cache_dir : str, optional
+        Override the weights download cache directory (default
+        ``~/.haptix/cache/encoders/``).
 
     Returns
     -------
@@ -170,8 +190,11 @@ def load_trained(sensor_type: str, weights_dir: str | None = None) -> SensorEnco
     Raises
     ------
     FileNotFoundError
-        If no trained weight file exists for *sensor_type* (the registry
-        entry is still served untrained via :func:`get_encoder`).
+        If no trained weight file exists for *sensor_type* and none can be
+        downloaded (the registry entry is still served untrained via
+        :func:`get_encoder`).
+    ChecksumError
+        If a downloaded weight file fails SHA-256 verification.
     """
     from pathlib import Path
 
@@ -183,10 +206,16 @@ def load_trained(sensor_type: str, weights_dir: str | None = None) -> SensorEnco
     if weights_dir is None:
         weights_dir = str(Path(__file__).resolve().parent / "weights")
     weights_path = Path(weights_dir) / f"{sensor_type}_v1.0.npz"
-    if not weights_path.is_file():
-        raise FileNotFoundError(
-            f"No trained weights for '{sensor_type}' at {weights_path}. "
-            "Train one with encoder.fit(records) + encoder.save(path), or "
-            "fetch published weights via the dataset catalog."
-        )
-    return _registry[sensor_type].load(weights_path)
+    if weights_path.is_file():
+        return _registry[sensor_type].load(weights_path)
+    if download:
+        from haptix.encoders.weights_download import fetch_trained_weights
+
+        fetched = fetch_trained_weights(sensor_type, cache_dir=cache_dir)
+        if fetched is not None:
+            return _registry[sensor_type].load(fetched)
+    raise FileNotFoundError(
+        f"No trained weights for '{sensor_type}' at {weights_path}, and no "
+        "published weights in the catalog to download. "
+        "Train one with encoder.fit(records) + encoder.save(path)."
+    )

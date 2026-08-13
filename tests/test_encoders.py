@@ -438,7 +438,7 @@ class TestLoadTrained:
 
     def test_load_trained_missing_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
-            load_trained("GelSight", weights_dir=str(tmp_path))
+            load_trained("GelSight", weights_dir=str(tmp_path), download=False)
 
     def test_load_trained_unknown_sensor_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):

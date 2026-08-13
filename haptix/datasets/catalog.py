@@ -35,6 +35,65 @@ _REQUIRED_KEYS = _DATASET_KEYS - {"sha256", "provenance", "encoder"}
 #   https://github.com/YouZe-Noema/haptix/releases/tag/demo-data-v0.2
 _DEMO_SAMPLE_SHA256 = "6404e1f897906c94c346a0f4c138602916c85a71a22ac8789c8539423a51fe82"
 
+# ── Published encoder weights (docs/encoder-registry.md §7) ───────────────
+#
+# Single source of truth for the v1.0 trained encoder weights hosted on the
+# Hugging Face Hub (repo: YouZe-Noema/haptix-encoders). ``get_encoder_weights``
+# is what ``haptix.load_trained(sensor_type)`` consults to auto-fetch weights
+# when no local copy exists. Catalog dataset entries reference the same
+# metadata in their ``encoder`` block (validated for consistency below).
+#
+# To publish a new weight file:
+#   1. upload <Sensor>_v1.0.npz to https://huggingface.co/YouZe-Noema/haptix-encoders
+#   2. add an entry here with weights_url (resolve URL) + weights_sha256
+#      (``shasum -a 256 <file>``) + embedding_dim
+#   3. optionally attach an ``encoder`` block to the relevant catalog dataset(s)
+_ENCODER_WEIGHTS = {
+    "GelSight": {
+        "weights_url": (
+            "https://huggingface.co/YouZe-Noema/haptix-encoders/" "resolve/main/GelSight_v1.0.npz"
+        ),
+        # shasum -a 256 GelSight_v1.0.npz
+        "weights_sha256": "46e391ab912b8c6036a99e909fb5d3d7d2610f9f6d1c7affc62e9bc2d89a7c32",
+        "embedding_dim": 256,
+        "benchmark": (
+            "79.8% leave-one-record-out nearest-centroid accuracy "
+            "(YCB-Sight real, 6 objects × 80 frames, 24 records)"
+        ),
+        "license": "MIT",
+        "homepage": "https://huggingface.co/YouZe-Noema/haptix-encoders",
+    },
+    "CoroCapacitive": {
+        "weights_url": (
+            "https://huggingface.co/YouZe-Noema/haptix-encoders/"
+            "resolve/main/CoroCapacitive_v1.0.npz"
+        ),
+        # shasum -a 256 CoroCapacitive_v1.0.npz
+        "weights_sha256": "7ac9114beb99fb9955e8ac12fe71912d2d4ac1d87a011e0c3c91d8d385130188",
+        "embedding_dim": 128,
+        "benchmark": (
+            "whitening decorrelation on real Lab-CORO CSV (786 frames): "
+            "mean |off-diagonal corr| 0.180 → 0.000"
+        ),
+        "license": "MIT",
+        "homepage": "https://huggingface.co/YouZe-Noema/haptix-encoders",
+    },
+}
+
+
+def get_encoder_weights(sensor_type: str) -> dict | None:
+    """Published encoder weights metadata for a sensor type, or None.
+
+    Returns a copy of the catalog entry: ``weights_url`` (HF Hub resolve
+    URL), ``weights_sha256``, ``embedding_dim``, ``benchmark``, ``license``,
+    ``homepage``. ``haptix.load_trained(sensor_type)`` uses this to fetch
+    and checksum-verify weights on demand (docs/encoder-registry.md §7).
+    """
+    if sensor_type not in _ENCODER_WEIGHTS:
+        return None
+    return dict(_ENCODER_WEIGHTS[sensor_type])
+
+
 _CATALOG = {
     "coro_tactile": {
         "name": "coro_tactile",
@@ -57,6 +116,9 @@ _CATALOG = {
         ),
         "license": "Research use only",
         "homepage": "https://github.com/Lab-CORO/TactileDataset",
+        # Published v1.0 encoder weights trained on this sensor family
+        # (docs/encoder-registry.md §7; single source of truth: _ENCODER_WEIGHTS).
+        "encoder": dict(_ENCODER_WEIGHTS["CoroCapacitive"]),
     },
     "touch_and_go": {
         "name": "touch_and_go",
@@ -96,6 +158,9 @@ _CATALOG = {
         ),
         "license": "MIT (research use)",
         "homepage": "https://rlab.columbia.edu/ycb_slide",
+        # Published v1.0 encoder weights trained on this sensor family
+        # (docs/encoder-registry.md §7; single source of truth: _ENCODER_WEIGHTS).
+        "encoder": dict(_ENCODER_WEIGHTS["GelSight"]),
     },
     "robotouch": {
         "name": "robotouch",
@@ -176,6 +241,16 @@ def _validate_catalog() -> None:
 
     Called at import time to catch typos / missing fields early.
     """
+
+    def _check_sha256(obj: dict, key: str, label: str) -> None:
+        sha = obj.get(key)
+        if not isinstance(sha, str) or len(sha) != 64:
+            raise RuntimeError(f"{label}: {key} must be a 64-char hex string")
+        try:
+            int(sha, 16)
+        except ValueError:
+            raise RuntimeError(f"{label}: {key} must be a valid hex string") from None
+
     for name, entry in _CATALOG.items():
         missing = _REQUIRED_KEYS - set(entry.keys())
         if missing:
@@ -187,14 +262,7 @@ def _validate_catalog() -> None:
             raise RuntimeError(f"Catalog entry {name!r}: url must start with http")
         sha256 = entry.get("sha256")
         if sha256 is not None:
-            if not isinstance(sha256, str) or len(sha256) != 64:
-                raise RuntimeError(f"Catalog entry {name!r}: sha256 must be a 64-char hex string")
-            try:
-                int(sha256, 16)
-            except ValueError:
-                raise RuntimeError(
-                    f"Catalog entry {name!r}: sha256 must be a valid hex string"
-                ) from None
+            _check_sha256(entry, "sha256", f"Catalog entry {name!r}")
         encoder = entry.get("encoder")
         if encoder is not None:
             if not isinstance(encoder, dict):
@@ -207,17 +275,24 @@ def _validate_catalog() -> None:
                 raise RuntimeError(
                     f"Catalog entry {name!r}: encoder.weights_url must start with http"
                 )
-            enc_sha = encoder["weights_sha256"]
-            if not isinstance(enc_sha, str) or len(enc_sha) != 64:
-                raise RuntimeError(
-                    f"Catalog entry {name!r}: encoder.weights_sha256 must be a 64-char hex string"
-                )
-            try:
-                int(enc_sha, 16)
-            except ValueError:
-                raise RuntimeError(
-                    f"Catalog entry {name!r}: encoder.weights_sha256 must be valid hex"
-                ) from None
+            _check_sha256(encoder, "weights_sha256", f"Catalog entry {name!r} encoder")
+            # Consistency: an encoder block must match the published registry
+            # for the sensor(s) it names (single source of truth).
+            for sensor in (s.strip() for s in entry["sensor_type"].split(",")):
+                reg = _ENCODER_WEIGHTS.get(sensor)
+                if reg is not None and encoder["weights_sha256"] != reg["weights_sha256"]:
+                    raise RuntimeError(
+                        f"Catalog entry {name!r}: encoder block for {sensor!r} does not "
+                        "match _ENCODER_WEIGHTS (weights_sha256 drift)"
+                    )
+
+    # Validate the encoder weights registry itself.
+    for sensor, info in _ENCODER_WEIGHTS.items():
+        if not info["weights_url"].startswith("http"):
+            raise RuntimeError(f"Encoder {sensor!r}: weights_url must start with http")
+        _check_sha256(info, "weights_sha256", f"Encoder {sensor!r}")
+        if "embedding_dim" not in info or not isinstance(info["embedding_dim"], int):
+            raise RuntimeError(f"Encoder {sensor!r}: embedding_dim must be an int")
 
 
 _validate_catalog()

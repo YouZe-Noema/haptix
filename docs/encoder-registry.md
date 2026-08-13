@@ -6,8 +6,10 @@
 > pure numpy), honest leave-one-record-out benchmarks, and v1.0 weights for
 > GelSight (YCB-Sight real, 79.8% LOO) + CoroCapacitive (real CSV,
 > whitening decorrelation) via `examples/train_encoders.py`. Weights live in
-> the gitignored `haptix/encoders/weights/` dir; **Hugging Face Hub
-> publication pending** (release decision, see §7).
+> the gitignored `haptix/encoders/weights/` dir; **HF Hub publication is
+> wired** (2026-08-13: catalog `encoder` blocks + `get_encoder_weights()` +
+> checksum-verified auto-download in `load_trained()`, see §7); the upload
+> itself is a one-command step awaiting an HF write token.
 > **Strategy:** per-sensor encoders first, community-contributed; a foundation
 > model only when sensor coverage + alignment data justify it.
 > **Companion docs:** `docs/adapters.md` (sensor adapters), `docs/api.md`.
@@ -308,15 +310,46 @@ starting with the first stable release. Rationale:
 - GitHub releases stay for dataset archives (as today); HF Hub is the
   weights home. No overlap, no ambiguity.
 
-Catalog schema addition (per sensor, optional until weights exist):
+**Implemented (2026-08-13) — wiring complete; upload pending an HF write
+credential.** The v1.0 weights (GelSight 528 KB, CoroCapacitive 131 KB,
+currently in the gitignored `haptix/encoders/weights/` dir) are slated for
+the HF repo [`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders)
+as `GelSight_v1.0.npz` / `CoroCapacitive_v1.0.npz` — their SHA-256 digests
+are already pinned in `haptix/datasets/catalog.py`, the single source of
+truth (`_ENCODER_WEIGHTS` + `get_encoder_weights()`), with `encoder` blocks
+attached to the `ycb_slide` (GelSight) and `coro_tactile` (CoroCapacitive)
+catalog entries and validated for consistency at import time. Once the files
+are uploaded to that repo (one command with an HF token), `load_trained()`
+auto-fetches on first use with no further code changes:
+
+```python
+import haptix
+
+enc = haptix.load_trained("GelSight")   # no local weights? downloads from HF
+emb = enc.encode(haptix.load("sample.hapt"))
+```
+
+Downloads go through `haptix.encoders.weights_download.fetch_trained_weights`:
+`urllib` (no new deps; HF resolve URLs redirect to the CDN) → SHA-256
+verification against the pinned digest (`ChecksumError` on mismatch, partial
+files cleaned up) → cache at `~/.haptix/cache/encoders/` (idempotent; a
+corrupt cached copy is detected and re-downloaded). Offline / strict-local
+callers pass `download=False`.
+
+Catalog schema (per sensor, optional until weights exist):
 
 ```python
 "encoder": {
-    "weights_url": "https://huggingface.co/YouZe-Noema/haptix-encoders/resolve/main/gelsight_v1.0.npz",
+    "weights_url": "https://huggingface.co/YouZe-Noema/haptix-encoders/resolve/main/GelSight_v1.0.npz",
     "weights_sha256": "64-char-hex",
     "embedding_dim": 256,
 }
 ```
+
+**Publishing flow for a new weight file:** upload `<Sensor>_v1.0.npz` to the
+HF repo, add an `_ENCODER_WEIGHTS` entry (url + `shasum -a 256` digest +
+dim), attach an `encoder` block to the relevant catalog dataset(s) if
+desired, and the auto-download + verification path works for all users.
 
 ## 8. Foundation-model evolution path (non-breaking)
 

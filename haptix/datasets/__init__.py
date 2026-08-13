@@ -22,7 +22,7 @@ Usage::
     >>> haptix.clear_cache()  # removes all cached data
 """
 
-from haptix.datasets.catalog import get_dataset_info, list_datasets
+from haptix.datasets.catalog import get_dataset_info, get_encoder_weights, list_datasets
 from haptix.datasets.download import (
     ChecksumError,
     cache_info,
@@ -39,6 +39,7 @@ __all__ = [
     "clear_cache",
     "download_dataset",
     "get_dataset_info",
+    "get_encoder_weights",
     "list_datasets",
     "verify_checksum",
 ]
