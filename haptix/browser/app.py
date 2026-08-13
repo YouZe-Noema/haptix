@@ -358,9 +358,8 @@ def main() -> None:
         key="root_input",
     )
     st.session_state["root"] = root_input
-    st.session_state["recursive"] = st.sidebar.checkbox(
-        "Scan subdirectories", value=True, key="recursive"
-    )
+    # key="recursive" owns its session_state entry — do NOT assign to it here
+    st.sidebar.checkbox("Scan subdirectories", value=True, key="recursive")
     if st.sidebar.button("Rescan", use_container_width=True):
         _scan.clear()
         st.rerun()
