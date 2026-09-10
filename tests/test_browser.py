@@ -180,7 +180,7 @@ def test_find_hapt_files_accepts_pathlib_and_str(gallery):
 
 
 def test_episode_summary_imaging(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     ep = episode_summary(p_img)
     assert ep["name"] == "press.hapt"
     assert ep["sensor"] == "GelSight"
@@ -212,7 +212,7 @@ def test_episode_summary_imaging(gallery):
 
 
 def test_episode_summary_dynamic_and_zip_zarr(gallery):
-    tmp, p_img, p_dyn, p_zip, p_zarr = gallery
+    _tmp, _p_img, p_dyn, p_zip, p_zarr = gallery
     ep = episode_summary(p_dyn)
     assert ep["modality"] == "dynamic"
     assert ep["shape"] == (20, 12)
@@ -323,7 +323,7 @@ def test_make_gallery_dataframe_empty():
 
 
 def test_frame_array_imaging(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     frame = frame_array(p_img, 3)
     assert frame.shape == (24, 32, 3)
     assert frame.dtype == np.uint8
@@ -333,7 +333,7 @@ def test_frame_array_imaging(gallery):
 
 
 def test_frame_array_dynamic(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     frame = frame_array(p_dyn, 5)
     assert frame.shape == (12,)
     data = haptix.load(p_dyn)
@@ -341,7 +341,7 @@ def test_frame_array_dynamic(gallery):
 
 
 def test_frame_array_out_of_range(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     with pytest.raises(IndexError):
         frame_array(p_img, 10)
     with pytest.raises(IndexError):
@@ -349,7 +349,7 @@ def test_frame_array_out_of_range(gallery):
 
 
 def test_frame_array_accepts_archive_handle(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     import haptix
 
     with haptix.open_archive(p_img) as arc:
@@ -358,7 +358,7 @@ def test_frame_array_accepts_archive_handle(gallery):
 
 
 def test_frame_signals(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     sig = frame_signals(p_dyn, 0)
     assert sig.shape == (12,)
     assert sig.ndim == 1
@@ -368,7 +368,7 @@ def test_frame_signals(gallery):
 
 
 def test_frame_image_uint8(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     img = frame_image(p_img, 2)
     assert img.mode == "RGB"
     assert img.size == (32, 24)  # (W, H)
@@ -423,7 +423,7 @@ def test_frame_image_float_normalization(tmp_path):
 
 
 def test_frame_image_rejects_dynamic(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     with pytest.raises(ValueError):
         frame_image(p_dyn, 0)
 
@@ -432,7 +432,7 @@ def test_frame_image_rejects_dynamic(gallery):
 
 
 def test_signal_trace_all_channels(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     trace = signal_trace(p_dyn)
     assert trace["t"].shape == (20,)
     assert trace["y"].shape == (20, 12)
@@ -442,21 +442,21 @@ def test_signal_trace_all_channels(gallery):
 
 
 def test_signal_trace_selected_channels(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     trace = signal_trace(p_dyn, channels=[2, 5])
     assert trace["y"].shape == (20, 2)
     assert trace["channels"] == [2, 5]
 
 
 def test_signal_trace_max_frames(gallery):
-    tmp, _, p_dyn, *_ = gallery
+    _tmp, _, p_dyn, *_ = gallery
     trace = signal_trace(p_dyn, max_frames=7)
     assert trace["t"].shape == (7,)
     assert trace["y"].shape == (7, 12)
 
 
 def test_unified_trace_present_and_absent(gallery):
-    tmp, p_img, p_dyn, *_ = gallery
+    _tmp, p_img, p_dyn, *_ = gallery
     u = unified_trace(p_img)
     assert u is not None
     assert u.shape == (10, 8)
@@ -464,7 +464,7 @@ def test_unified_trace_present_and_absent(gallery):
 
 
 def test_unified_trace_max_frames(gallery):
-    tmp, p_img, *_ = gallery
+    _tmp, p_img, *_ = gallery
     u = unified_trace(p_img, max_frames=4)
     assert u.shape == (4, 8)
 
@@ -487,7 +487,10 @@ def test_cli_module_has_main():
 
 def test_browser_console_script_declared():
     """haptix-browser entry point must exist in pyproject [project.scripts]."""
-    import tomllib
+    try:
+        import tomllib  # Python 3.11+
+    except ModuleNotFoundError:  # Python 3.10
+        import tomli as tomllib  # type: ignore[no-redef]
 
     pyproject = Path(haptix.__file__).resolve().parent.parent / "pyproject.toml"
     with open(pyproject, "rb") as f:
@@ -514,7 +517,7 @@ def test_browser_core_imports_without_streamlit():
     """Importing the browser core must not pull in streamlit/plotly."""
     import sys
 
-    import haptix.browser.core as core
+    from haptix.browser import core
 
     assert "streamlit" not in sys.modules
     assert "plotly" not in sys.modules

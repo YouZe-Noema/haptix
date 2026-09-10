@@ -41,7 +41,7 @@ torch = [
 ]
 jax = ["jax>=0.4"]
 all = ["haptix[torch,jax]", "h5py>=3.0", "zarr>=2.0"]
-dev = ["haptix[all]", "pytest>=7.0", "pytest-cov", "black", "ruff", "mypy"]
+dev = ["haptix[all]", "pytest>=7.0", "pytest-cov", "black==24.10.0", "ruff==0.16.0", "mypy", "tomli; python_version < '3.11'"]
 
 [project.scripts]
 haptix-browser = "haptix.browser.cli:main"

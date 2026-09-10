@@ -20,7 +20,6 @@ from haptix.encoders import load_trained
 from haptix.encoders.weights_download import encoder_cache_dir, fetch_trained_weights
 from haptix.io import ChecksumError
 
-
 # ── catalog registry ──────────────────────────────────────────────────────
 
 

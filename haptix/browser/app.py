@@ -169,7 +169,7 @@ def _frame_view(ep: dict, key: str = "") -> None:
             xaxis_title="channel",
             yaxis_title="value",
             height=300,
-            margin=dict(l=40, r=20, t=40, b=30),
+            margin={"l": 40, "r": 20, "t": 40, "b": 30},
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -199,7 +199,7 @@ def _signal_explorer(ep: dict, key: str = "") -> None:
         xaxis_title="time (s)" if ep["timestamps"] else "frame",
         yaxis_title="value",
         height=320,
-        margin=dict(l=40, r=20, t=40, b=30),
+        margin={"l": 40, "r": 20, "t": 40, "b": 30},
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -224,7 +224,7 @@ def _unified_view(ep: dict, key: str = "") -> None:
                 z=u.T,
                 x=t,
                 colorscale="Viridis",
-                colorbar=dict(title="value"),
+                colorbar={"title": "value"},
             )
         ]
     )
@@ -233,7 +233,7 @@ def _unified_view(ep: dict, key: str = "") -> None:
         xaxis_title="frame",
         yaxis_title="embedding dim",
         height=340,
-        margin=dict(l=40, r=20, t=40, b=30),
+        margin={"l": 40, "r": 20, "t": 40, "b": 30},
     )
     st.plotly_chart(fig, use_container_width=True)
 

@@ -46,6 +46,6 @@ jobs:
           python-version: "3.12"
       - name: Lint
         run: |
-          pip install ruff black
+          pip install ruff==0.16.0 black==24.10.0
           ruff check haptix/ tests/
           black --check haptix/ tests/
