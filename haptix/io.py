@@ -18,6 +18,7 @@ import hashlib
 import io
 import json
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -301,11 +302,35 @@ def _default_provenance() -> Provenance:
     import datetime
 
     return Provenance(
-        file_hash="",  # Computed on save
+        file_hash="",  # Filled in by _save_dir for directory-format saves
         source=Source(),
         created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         created_by="haptix/0.2.0",
     )
+
+
+def _compute_dir_file_hash(path: Path) -> str:
+    """Content-addressable identity of a .hapt directory (spec v0.2 §186).
+
+    Recursively hashes every file under ``path`` except top-level
+    ``provenance.json`` (which stores this digest). Entries are sorted by
+    relative POSIX path; each file is SHA-256'd individually. The final
+    digest is SHA-256 over the UTF-8 encoding of the newline-joined
+    ``"<relpath>:<sha256hex>"`` lines (sorted order). Returns a bare
+    lowercase 64-char hex digest (no ``sha256:`` prefix).
+    """
+    entries: list[tuple[str, str]] = []
+    for p in path.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(path).as_posix()
+        if rel == "provenance.json":
+            continue
+        file_digest = hashlib.sha256(p.read_bytes()).hexdigest()
+        entries.append((rel, file_digest))
+    entries.sort(key=lambda t: t[0])
+    payload = "\n".join(f"{rel}:{digest}" for rel, digest in entries)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _save_dir(data: HaptData, path: Path) -> Path:
@@ -328,15 +353,6 @@ def _save_dir(data: HaptData, path: Path) -> Path:
     with open(path / "labels.json", "w") as f:
         json.dump(data.labels.to_dict(), f, indent=2)
 
-    # Write provenance (v0.2+)
-    if data.provenance is not None:
-        with open(path / "provenance.json", "w") as f:
-            json.dump(data.provenance.to_dict(), f, indent=2)
-    else:
-        provenance = _default_provenance()
-        with open(path / "provenance.json", "w") as f:
-            json.dump(provenance.to_dict(), f, indent=2)
-
     # Optional unified
     if data.unified is not None:
         unified_dir = path / "unified"
@@ -352,6 +368,14 @@ def _save_dir(data: HaptData, path: Path) -> Path:
         }
         with open(unified_dir / "transform.json", "w") as f:
             json.dump(transform, f, indent=2)
+
+    # Write provenance last so file_hash covers the complete directory
+    prov = data.provenance if data.provenance is not None else _default_provenance()
+    # Fill only when unset — preserve caller-supplied non-empty file_hash
+    if not prov.file_hash:
+        prov = replace(prov, file_hash=_compute_dir_file_hash(path))
+    with open(path / "provenance.json", "w") as f:
+        json.dump(prov.to_dict(), f, indent=2)
 
     return path
 

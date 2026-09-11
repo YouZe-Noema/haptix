@@ -236,10 +236,74 @@ class TestSaveLoadAutoProvenance:
 
         assert loaded.provenance is not None
         assert loaded.provenance.created_by == f"haptix/{haptix.__version__}"
-        # _default_provenance() sets file_hash=""; save does not fill it in.
+        # _save_dir fills empty file_hash with the content-addressable directory digest.
         assert isinstance(loaded.provenance.file_hash, str)
-        assert loaded.provenance.file_hash == ""
+        assert len(loaded.provenance.file_hash) == 64
+        assert loaded.provenance.file_hash.islower()
+        assert all(c in "0123456789abcdef" for c in loaded.provenance.file_hash)
         assert loaded.provenance.created != ""
         assert loaded.provenance.source == Source()
         assert loaded.provenance.processing == []
         assert loaded.provenance.is_lossy is False
+
+
+class TestFileHash:
+    """Content-addressable file_hash for directory-format saves (spec §186)."""
+
+    def test_file_hash_is_64_hex(self, tmp_path):
+        """Saved directory provenance.file_hash matches ^[0-9a-f]{64}$."""
+        import re
+
+        path = tmp_path / "ep.hapt"
+        save(make_test_data(), path)
+        loaded = load(path)
+        assert re.fullmatch(r"[0-9a-f]{64}", loaded.provenance.file_hash)
+
+    def test_file_hash_is_deterministic(self, tmp_path):
+        """Identical HaptData saved to two dirs yields the same file_hash."""
+        data = make_test_data()
+        path_a = tmp_path / "a.hapt"
+        path_b = tmp_path / "b.hapt"
+        save(data, path_a)
+        save(data, path_b)
+        assert load(path_a).provenance.file_hash == load(path_b).provenance.file_hash
+
+    def test_file_hash_changes_with_content(self, tmp_path):
+        """Different raw arrays produce different file_hash values."""
+        data_a = make_test_data()
+        data_b = make_test_data()  # fresh np.random draw
+        path_a = tmp_path / "a.hapt"
+        path_b = tmp_path / "b.hapt"
+        save(data_a, path_a)
+        save(data_b, path_b)
+        assert load(path_a).provenance.file_hash != load(path_b).provenance.file_hash
+
+    def test_explicit_file_hash_is_preserved(self, tmp_path):
+        """Caller-supplied non-empty file_hash is left unchanged on save."""
+        frames = np.zeros((2, 8, 8, 1), dtype=np.uint8)
+        data = HaptData(
+            raw=RawData(
+                array=frames,
+                checksum=RawData.compute_checksum(frames),
+                dtype=str(frames.dtype),
+                shape=frames.shape,
+            ),
+            sensor=SensorMeta(type="DIGIT_v2"),
+            modality="imaging",
+            sampling_rate_hz=30.0,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(material="foam"),
+            provenance=Provenance(file_hash="abc123"),
+        )
+        path = tmp_path / "ep.hapt"
+        save(data, path)
+        assert load(path).provenance.file_hash == "abc123"
+
+    def test_file_hash_matches_recomputation(self, tmp_path):
+        """Loaded file_hash equals _compute_dir_file_hash over the saved dir."""
+        from haptix.io import _compute_dir_file_hash
+
+        path = tmp_path / "ep.hapt"
+        save(make_test_data(), path)
+        loaded = load(path)
+        assert loaded.provenance.file_hash == _compute_dir_file_hash(path)

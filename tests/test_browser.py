@@ -230,12 +230,14 @@ def test_episode_summary_dynamic_and_zip_zarr(gallery):
 
 
 def test_episode_summary_no_provenance_no_unified(tmp_path):
-    # save() always writes provenance.json; without explicit provenance it is
-    # the auto-generated default (file_hash="" until a content hash is set).
+    # save() always writes provenance.json; without explicit provenance the
+    # directory save fills file_hash with the content-addressable digest.
+    import re
+
     data = make_imaging_data(with_provenance=False, with_unified=False)
     p = write_episode(tmp_path, "bare.hapt", data)
     ep = episode_summary(p)
-    assert ep["file_hash"] == ""
+    assert re.fullmatch(r"[0-9a-f]{64}", ep["file_hash"])
     assert ep["source"] == {}
     assert ep["unified"] is False
     assert ep["unified_shape"] is None
