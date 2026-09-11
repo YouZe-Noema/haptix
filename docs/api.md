@@ -269,6 +269,94 @@ Return a read-only view.
 
 ---
 
+### `class Source`
+
+Origin metadata for a `.hapt` file. Frozen (immutable) dataclass; every field is
+optional (`None` by default).
+
+**Fields:**
+| Field | Type | Description |
+|---|---|---|
+| `.dataset` | `Optional[str]` | Source dataset name |
+| `.url` | `Optional[str]` | URL to the dataset or source |
+| `.citation` | `Optional[str]` | Citation string for the dataset |
+| `.license` | `Optional[str]` | License identifier (e.g. `"CC-BY-4.0"`) |
+| `.collection_date` | `Optional[str]` | ISO date the data was collected |
+| `.sensor_calibration` | `Optional[str]` | Sensor calibration reference/info |
+
+**Methods:**
+
+#### `Source.to_dict() -> dict`
+
+Serialize to dict (omits `None` fields).
+
+#### `Source.from_dict(d: dict) -> Source`
+
+Deserialize from dict; missing keys become `None`.
+
+---
+
+### `class Provenance`
+
+Immutable provenance tracking for data lineage: file identity (content-addressable
+hash), derivation chain, processing history, and source metadata. Frozen dataclass.
+
+When a `.hapt` file is saved without provenance, one is **auto-generated**:
+`file_hash` is filled in at save time, `created` is set to the current UTC time,
+and `created_by` is set to the current haptix version.
+
+`HaptData.provenance` returns `Optional[Provenance]` — the provenance attached to
+an in-memory episode, or `None` when the data predates provenance support.
+
+**Related type — `ProcessingStep`** (import from `haptix.core`, not a top-level
+export): a single pipeline step with fields `name: str`, `params: dict` (default
+`{}`), and `tool: Optional[str]`. Has its own `to_dict()` / `from_dict()`.
+
+**Fields:**
+| Field | Type | Description |
+|---|---|---|
+| `.file_hash` | `str` | SHA-256 content hash of the file (computed on save) |
+| `.derived_from` | `Optional[str]` | Identifier of the parent file this was derived from |
+| `.processing` | `list[ProcessingStep]` | Ordered pipeline steps applied to produce this data |
+| `.is_lossy` | `bool` | Whether the derivation chain loses information (default `False`) |
+| `.source` | `Source` | Origin metadata (defaults to an empty `Source()`) |
+| `.created` | `str` | ISO-8601 creation timestamp (UTC) |
+| `.created_by` | `str` | Producing tool + version (default `"haptix/0.2.0"`) |
+
+**Methods:**
+
+#### `Provenance.to_dict() -> dict`
+
+Serialize to a JSON-compatible dict. `processing` steps are serialized via
+`ProcessingStep.to_dict()`. All keys are always present (unlike `Source.to_dict`).
+
+#### `Provenance.from_dict(d: dict) -> Provenance`
+
+Deserialize from dict; each entry in `processing` is reconstructed with
+`ProcessingStep.from_dict()`. Missing keys fall back to the field defaults.
+
+**Usage:**
+
+```python
+from haptix import Provenance, Source
+from haptix.core import ProcessingStep
+
+prov = Provenance(
+    file_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    derived_from="raw_episode.hapt",
+    processing=[ProcessingStep(name="resize", params={"size": 64}, tool="haptix/0.2.0")],
+    is_lossy=True,
+    source=Source(dataset="DIGIT", license="CC-BY-4.0", url="https://example.org/digit"),
+    created="2026-01-01T00:00:00+00:00",
+)
+
+d = prov.to_dict()
+assert Provenance.from_dict(d) == prov   # frozen dataclass equality round-trips
+assert d["source"]["license"] == "CC-BY-4.0"
+```
+
+---
+
 ### Type Aliases
 
 ```python
