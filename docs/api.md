@@ -302,8 +302,10 @@ Immutable provenance tracking for data lineage: file identity (content-addressab
 hash), derivation chain, processing history, and source metadata. Frozen dataclass.
 
 When a `.hapt` file is saved without provenance, one is **auto-generated**:
-`file_hash` is filled in at save time, `created` is set to the current UTC time,
-and `created_by` is set to the current haptix version.
+`created` is set to the current UTC time and `created_by` to the current haptix
+version. For the `.hapt` **directory** format, `file_hash` is computed from the
+directory contents on save (spec v0.2 §186) — the `.hapt.zip` / `.hapt.zarr`
+single-file backends preserve it only when already set.
 
 `HaptData.provenance` returns `Optional[Provenance]` — the provenance attached to
 an in-memory episode, or `None` when the data predates provenance support.
