@@ -7,7 +7,8 @@
 ```bash
 pip install haptix            # core (numpy, Pillow)
 pip install haptix[torch]     # with PyTorch integration
-pip install haptix[all]       # everything (torch, jax, video tools)
+pip install haptix[browser]   # interactive .hapt data browser (streamlit + plotly)
+pip install haptix[all]       # everything (torch, jax, browser, h5py, zarr)
 pip install haptix[dev]       # with dev dependencies (pytest, black, ruff)
 ```
 
