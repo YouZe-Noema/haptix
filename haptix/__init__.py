@@ -1,5 +1,6 @@
 # haptix — Tactile Data Infrastructure
 
+from haptix._version import __version__ as __version__
 from haptix.browser import (
     episode_summary,
     find_hapt_files,
@@ -36,7 +37,6 @@ from haptix.streaming import HaptArchive, open_archive
 from haptix.torch_dataset import TemporalDataset, WindowedDataset
 from haptix.unified import CrossModalEncoder, SharedForceEncoder, UnifiedEncoder
 
-__version__ = "0.2.0"
 __all__ = [
     "ChecksumError",
     "CrossModalEncoder",

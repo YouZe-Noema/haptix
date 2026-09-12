@@ -183,7 +183,7 @@ sha256sum raw/data.npy → stored in raw/checksum.sha256
 
 On load, verify checksum matches. If not, raise `ChecksumError`.
 
-The `file_hash` in `provenance.json` is computed over the entire `.hapt` directory contents (excluding `provenance.json` itself) using a deterministic order-independent algorithm — filenames are sorted, file contents are hashed individually, then the list of `(filename, file_hash)` pairs is hashed to produce the final `file_hash`.
+The `file_hash` in `provenance.json` is computed over the entire `.hapt` directory contents (excluding `provenance.json` itself) using a deterministic order-independent algorithm — filenames are sorted, file contents are hashed individually, then the list of `(filename, file_hash)` pairs is hashed to produce the final `file_hash`. Volatile creation metadata in `manifest.json` (`created`, `created_by`) is excluded from the digest so content identity remains deterministic across saves.
 
 ## Unified Representation (Optional)
 

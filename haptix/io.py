@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+from haptix._version import __version__
 from haptix.core import (
     HaptData,
     InteractionMeta,
@@ -279,6 +280,8 @@ def _build_manifest(data: HaptData) -> dict:
 
     Centralizes the v0.2 manifest schema so directory, .hapt.zarr, and
     .hapt.zip backends can never drift apart."""
+    import datetime
+
     return {
         "version": data.version,
         "sensor": data.sensor.to_dict(),
@@ -292,8 +295,8 @@ def _build_manifest(data: HaptData) -> dict:
         "raw_shape": list(data.raw.shape),
         "raw_dtype": str(data.raw.dtype),
         "interaction": data.interaction.to_dict(),
-        "created": "2026-07-24T00:00:00Z",  # TODO: use actual timestamp
-        "created_by": "haptix/0.2.0",
+        "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "created_by": f"haptix/{__version__}",
     }
 
 
@@ -305,17 +308,41 @@ def _default_provenance() -> Provenance:
         file_hash="",  # Filled in by _save_dir for directory-format saves
         source=Source(),
         created=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        created_by="haptix/0.2.0",
+        created_by=f"haptix/{__version__}",
     )
+
+
+def _manifest_content_bytes(raw: bytes) -> bytes:
+    """Bytes of ``manifest.json`` for content hashing (volatile fields stripped).
+
+    Creation time/author are provenance-like metadata, not data content. If the
+    file is unparseable, return ``raw`` unchanged so the hasher never raises.
+    """
+    try:
+        obj = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError):
+        return raw
+    if not isinstance(obj, dict):
+        return raw
+    obj.pop("created", None)
+    obj.pop("created_by", None)
+    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _compute_dir_file_hash(path: Path) -> str:
     """Content-addressable identity of a .hapt directory (spec v0.2 §186).
 
-    Recursively hashes every file under ``path`` except top-level
-    ``provenance.json`` (which stores this digest). Entries are sorted by
-    relative POSIX path; each file is SHA-256'd individually. The final
-    digest is SHA-256 over the UTF-8 encoding of the newline-joined
+    Identity is the *data content*, not when/who wrote the file. Recursively
+    hashes every file under ``path`` with these exclusions:
+
+    - top-level ``provenance.json`` — stores this digest (must be omitted)
+    - ``manifest.json`` ``created`` / ``created_by`` — volatile creation
+      metadata; the file is hashed as a canonicalized JSON copy with those
+      top-level keys removed so identical data yields a stable digest
+
+    All other files are hashed by raw bytes. Entries are sorted by relative
+    POSIX path; each file is SHA-256'd individually. The final digest is
+    SHA-256 over the UTF-8 encoding of the newline-joined
     ``"<relpath>:<sha256hex>"`` lines (sorted order). Returns a bare
     lowercase 64-char hex digest (no ``sha256:`` prefix).
     """
@@ -326,7 +353,10 @@ def _compute_dir_file_hash(path: Path) -> str:
         rel = p.relative_to(path).as_posix()
         if rel == "provenance.json":
             continue
-        file_digest = hashlib.sha256(p.read_bytes()).hexdigest()
+        raw = p.read_bytes()
+        if rel == "manifest.json":
+            raw = _manifest_content_bytes(raw)
+        file_digest = hashlib.sha256(raw).hexdigest()
         entries.append((rel, file_digest))
     entries.sort(key=lambda t: t[0])
     payload = "\n".join(f"{rel}:{digest}" for rel, digest in entries)

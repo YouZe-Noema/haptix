@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from haptix._version import __version__
+
 if TYPE_CHECKING:
     import torch
 
@@ -206,7 +208,7 @@ class Provenance:
     is_lossy: bool = False
     source: Source = field(default_factory=Source)
     created: str = ""
-    created_by: str = "haptix/0.2.0"
+    created_by: str = f"haptix/{__version__}"
 
     def to_dict(self) -> dict:
         return {
@@ -236,7 +238,7 @@ class Provenance:
             is_lossy=d.get("is_lossy", False),
             source=Source.from_dict(d.get("source", {})),
             created=d.get("created", ""),
-            created_by=d.get("created_by", "haptix/0.2.0"),
+            created_by=d.get("created_by", f"haptix/{__version__}"),
         )
 
 
