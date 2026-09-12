@@ -4,11 +4,15 @@ Round-trip tests for .hapt format.
 These verify the core guarantee: load(save(data)) == data.
 """
 
+import datetime
+import json
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
@@ -40,6 +44,16 @@ def make_test_data() -> HaptData:
     )
 
 
+def _assert_real_manifest_created(created: str) -> None:
+    """created must be ISO-8601 UTC, recent, and not the old fabricated constant."""
+    parsed = datetime.datetime.fromisoformat(created)
+    assert parsed.tzinfo is not None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    delta = abs((now - parsed.astimezone(datetime.timezone.utc)).total_seconds())
+    assert delta < 120
+    assert created != "2026-07-24T00:00:00Z"
+
+
 class TestRoundTrip:
     """Verify load(save(x)) == x for all data integrity guarantees."""
 
@@ -69,6 +83,49 @@ class TestRoundTrip:
             assert loaded.raw.shape == original.raw.shape
             assert loaded.raw.dtype == original.raw.dtype
 
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_manifest_created_directory(self):
+        """Directory backend writes a real UTC created timestamp."""
+        original = make_test_data()
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            saved_path = save(original, tmp / "test.hapt")
+            created = json.loads((saved_path / "manifest.json").read_text())["created"]
+            _assert_real_manifest_created(created)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_manifest_created_zip(self):
+        """.hapt.zip backend writes a real UTC created timestamp."""
+        original = make_test_data()
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            saved_path = save(original, tmp / "test.hapt.zip")
+            with zipfile.ZipFile(saved_path, "r") as zf:
+                created = json.loads(zf.read("manifest.json"))["created"]
+            _assert_real_manifest_created(created)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_manifest_created_zarr(self):
+        """.hapt.zarr backend writes a real UTC created timestamp."""
+        pytest.importorskip("zarr")
+        pytest.importorskip("numcodecs")
+        original = make_test_data()
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            saved_path = save(original, tmp / "test.hapt.zarr")
+            import zarr
+
+            store = zarr.storage.ZipStore(str(saved_path), mode="r")
+            try:
+                root = zarr.open_group(store=store, mode="r")
+                created = root.attrs["manifest"]["created"]
+            finally:
+                store.close()
+            _assert_real_manifest_created(created)
         finally:
             shutil.rmtree(tmp)
 

@@ -307,3 +307,90 @@ class TestFileHash:
         save(make_test_data(), path)
         loaded = load(path)
         assert loaded.provenance.file_hash == _compute_dir_file_hash(path)
+
+    def test_file_hash_immune_to_manifest_created(self, tmp_path, monkeypatch):
+        """Same data with different manifest created/created_by yields same digest."""
+        import haptix.io as io_mod
+
+        data = make_test_data()
+        original = io_mod._build_manifest
+        state = {
+            "created": "2020-01-01T00:00:00+00:00",
+            "created_by": "haptix/test-a",
+        }
+
+        def patched(d):
+            m = original(d)
+            m["created"] = state["created"]
+            m["created_by"] = state["created_by"]
+            return m
+
+        monkeypatch.setattr(io_mod, "_build_manifest", patched)
+
+        path_a = tmp_path / "a.hapt"
+        save(data, path_a)
+        hash_a = load(path_a).provenance.file_hash
+
+        state["created"] = "2021-06-15T12:30:00+00:00"
+        state["created_by"] = "haptix/test-b"
+        path_b = tmp_path / "b.hapt"
+        save(data, path_b)
+        hash_b = load(path_b).provenance.file_hash
+
+        assert hash_a == hash_b
+        import json
+
+        ma = json.loads((path_a / "manifest.json").read_text())
+        mb = json.loads((path_b / "manifest.json").read_text())
+        assert ma["created"] != mb["created"]
+        assert ma["created_by"] != mb["created_by"]
+
+
+class TestManifestCreated:
+    """manifest.json created / created_by must be real, versioned metadata."""
+
+    def test_manifest_created_is_real_utc_timestamp(self, tmp_path):
+        """Directory save writes a parseable UTC created within 120s of now."""
+        import datetime
+        import json
+
+        path = tmp_path / "ep.hapt"
+        save(make_test_data(), path)
+        created = json.loads((path / "manifest.json").read_text())["created"]
+        parsed = datetime.datetime.fromisoformat(created)
+        assert parsed.tzinfo is not None
+        now = datetime.datetime.now(datetime.timezone.utc)
+        delta = abs((now - parsed.astimezone(datetime.timezone.utc)).total_seconds())
+        assert delta < 120
+        assert created != "2026-07-24T00:00:00Z"
+
+    def test_manifest_created_by_matches_package_version(self, tmp_path):
+        """Directory save writes created_by as haptix/<version>."""
+        import json
+
+        path = tmp_path / "ep.hapt"
+        save(make_test_data(), path)
+        created_by = json.loads((path / "manifest.json").read_text())["created_by"]
+        assert created_by == f"haptix/{haptix.__version__}"
+
+    def test_version_matches_single_source(self):
+        """haptix.__version__ equals the literal in haptix._version."""
+        import haptix._version as version_mod
+
+        assert haptix.__version__ == version_mod.__version__
+
+    def test_build_manifest_json_serializable_and_nondecreasing(self):
+        """_build_manifest is JSON-serializable; successive calls are non-decreasing."""
+        import datetime
+        import json
+
+        from haptix.io import _build_manifest
+
+        data = make_test_data()
+        m1 = _build_manifest(data)
+        m2 = _build_manifest(data)
+        json.dumps(m1)
+        json.dumps(m2)
+        t1 = datetime.datetime.fromisoformat(m1["created"])
+        t2 = datetime.datetime.fromisoformat(m2["created"])
+        assert t2 >= t1
