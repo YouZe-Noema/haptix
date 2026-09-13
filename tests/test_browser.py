@@ -516,11 +516,25 @@ def test_top_level_exports_work_without_streamlit(gallery):
 
 
 def test_browser_core_imports_without_streamlit():
-    """Importing the browser core must not pull in streamlit/plotly."""
+    """Importing the browser core must not pull in streamlit/plotly.
+
+    Runs in a fresh subprocess so sibling tests that import the Streamlit app
+    (``tests/test_browser_app.py``) cannot pollute ``sys.modules``.
+    """
+    import subprocess
     import sys
 
-    from haptix.browser import core
-
-    assert "streamlit" not in sys.modules
-    assert "plotly" not in sys.modules
-    assert core.frame_image is not None
+    code = (
+        "import sys\n"
+        "from haptix.browser import core\n"
+        "assert 'streamlit' not in sys.modules\n"
+        "assert 'plotly' not in sys.modules\n"
+        "assert core.frame_image is not None\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
