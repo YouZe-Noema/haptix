@@ -29,6 +29,12 @@ Open an issue on GitHub. Include:
 
 By submitting a PR, you agree to license your contribution under the MIT license.
 
+### Changelog
+
+User-visible changes should add an entry under `## [Unreleased]` in
+[`CHANGELOG.md`](CHANGELOG.md), following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+The release process is documented in [`docs/release.md`](docs/release.md).
+
 ### Adding a New Sensor Adapter
 
 See [docs/adapters.md](docs/adapters.md) for the full guide. The TL;DR:

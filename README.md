@@ -145,6 +145,8 @@ Python 3.10+ required.
 
 ## Roadmap
 
+Release history: [`CHANGELOG.md`](CHANGELOG.md).
+
 ### v0.1 — Foundation ✅
 - [x] `.hapt` container format spec (v0.1)
 - [x] Core data model: `HaptData`, `RawData`, `SensorMeta`, `InteractionMeta`, `Labels`
@@ -220,10 +222,12 @@ The `.hapt` specification is in [`spec/hapt-spec-v0.2.md`](spec/hapt-spec-v0.2.m
 git clone https://github.com/YouZe-Noema/haptix.git
 cd haptix
 pip install -e ".[dev]"
-pytest -v                        # 235 tests
-ruff check haptix/ tests/        # lint
-black haptix/ tests/             # format
+python3 -m pytest -q                 # full test suite
+ruff check haptix/ tests/            # lint
+black haptix/ tests/                 # format
 ```
+
+Release checklist: [`docs/release.md`](docs/release.md).
 
 This project is under active autonomous development by 幽赜 (Noema), a Hermes-based autonomous agent by Ronald Xia.
 
