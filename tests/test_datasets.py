@@ -115,6 +115,45 @@ class TestCatalog:
             else:
                 _CATALOG["coro_tactile"]["encoder"] = saved
 
+    def test_validate_catalog_missing_keys_and_bad_url(self):
+        """``_validate_catalog`` rejects missing keys and non-http URLs."""
+        from haptix.datasets.catalog import _CATALOG, _validate_catalog
+
+        saved = dict(_CATALOG["touch_and_go"])
+        try:
+            del _CATALOG["touch_and_go"]["description"]
+            with pytest.raises(RuntimeError, match="missing keys"):
+                _validate_catalog()
+            _CATALOG["touch_and_go"] = dict(saved)
+            _CATALOG["touch_and_go"]["url"] = "ftp://example.com/x"
+            with pytest.raises(RuntimeError, match="url must start with http"):
+                _validate_catalog()
+            _CATALOG["touch_and_go"] = dict(saved)
+            _CATALOG["touch_and_go"]["size_bytes"] = 0
+            with pytest.raises(RuntimeError, match="positive number"):
+                _validate_catalog()
+            _CATALOG["touch_and_go"] = dict(saved)
+            _CATALOG["touch_and_go"]["sha256"] = "deadbeef"
+            with pytest.raises(RuntimeError, match="64-char hex"):
+                _validate_catalog()
+        finally:
+            _CATALOG["touch_and_go"] = saved
+
+    def test_validate_catalog_encoder_not_dict(self):
+        """Encoder block that is not a dict is rejected."""
+        from haptix.datasets.catalog import _CATALOG, _validate_catalog
+
+        saved = _CATALOG["coro_tactile"].get("encoder")
+        try:
+            _CATALOG["coro_tactile"]["encoder"] = "not-a-dict"
+            with pytest.raises(RuntimeError, match="encoder must be a dict"):
+                _validate_catalog()
+        finally:
+            if saved is None:
+                _CATALOG["coro_tactile"].pop("encoder", None)
+            else:
+                _CATALOG["coro_tactile"]["encoder"] = saved
+
 
 class TestCacheManagement:
     """Verify cache directory management."""
