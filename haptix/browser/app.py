@@ -57,8 +57,19 @@ def _default_root() -> Path:
 
 @st.cache_data(show_spinner="Scanning for .hapt recordings…")
 def _scan(root: str, recursive: bool) -> dict:
-    """Cached scan_directory result (JSON-serializable summaries)."""
-    return scan_directory(root, recursive=recursive)
+    """Cached scan_directory result (JSON-serializable summaries).
+
+    A missing root is reported as an empty scan with one error entry rather
+    than raising — the sidebar lets users type arbitrary paths.
+    """
+    try:
+        return scan_directory(root, recursive=recursive)
+    except FileNotFoundError as exc:
+        return {
+            "root": str(root),
+            "episodes": [],
+            "errors": [{"path": str(root), "error": str(exc)}],
+        }
 
 
 @st.cache_data(show_spinner=False)
@@ -372,4 +383,5 @@ def main() -> None:
         page_gallery()
 
 
-main()
+if __name__ == "__main__":
+    main()
