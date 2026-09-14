@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]  # >=77: PEP 639 license expression + license-files
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,7 +17,6 @@ keywords = ["tactile", "haptics", "robotics", "machine-learning", "dataset"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

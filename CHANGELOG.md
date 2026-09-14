@@ -51,6 +51,11 @@ complete the v0.3 stack from the README.)
   browse root.
 - Demo GelSight loader scans per-object YCB-Sight subfolders; demo classifier uses
   textured synthetic data and deterministic training for stability.
+- Packaging metadata rejected by modern setuptools (PEP 639): the legacy
+  `License :: OSI Approved :: MIT License` classifier conflicted with
+  `license = "MIT"`, so `python -m build` failed and CI `pip install -e ".[dev]"`
+  broke on Python 3.10–3.12. Raised the build floor to `setuptools>=77` and added
+  a CI `package` job (`build` + `twine check`).
 
 ## [0.2.0] - 2026-08-03
 
