@@ -199,3 +199,93 @@ class TestBioTacAdapter:
                 )
         finally:
             shutil.rmtree(tmp)
+
+    def test_can_load_rejects_wrong_suffix_even_if_file_exists(self, tmp_path):
+        """Existing non-.csv/.txt/.dat file returns False (suffix gate)."""
+        path = tmp_path / "biotac.json"
+        path.write_text('{"E1": 1}')
+        adapter = BioTacAdapter()
+        assert adapter.can_load(path) is False
+
+    def test_can_load_unreadable_binary_returns_false(self, tmp_path):
+        """Binary garbage that fails UTF-8 decode → can_load is False."""
+        path = tmp_path / "garbage.csv"
+        path.write_bytes(b"\xff\xfe\x00\x01\x80\x81")
+        adapter = BioTacAdapter()
+        assert adapter.can_load(path) is False
+
+    def test_load_skips_non_numeric_rows(self, tmp_path):
+        """Non-numeric data rows are skipped; valid floats are kept."""
+        cols = [f"E{i}" for i in range(1, 20)] + ["PDC", "PAC", "TDC", "TAC"]
+        good = [float(i) for i in range(23)]
+        csv_path = tmp_path / "mixed.csv"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(cols)
+            writer.writerow(["not", "a", "number"] + ["0"] * 20)
+            writer.writerow([f"{v:.1f}" for v in good])
+            writer.writerow(["x"] * 23)
+
+        adapter = BioTacAdapter()
+        data = adapter.load(
+            csv_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (1, 23)
+        np.testing.assert_array_equal(data.raw.array[0], np.array(good, dtype=np.float32))
+
+    def test_load_no_valid_numeric_rows_raises(self, tmp_path):
+        """Header-only / all-junk data raises ValueError."""
+        cols = [f"E{i}" for i in range(1, 20)] + ["PDC", "PAC", "TDC", "TAC"]
+        csv_path = tmp_path / "header_only.csv"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(cols)
+            writer.writerow(["bad"] * 23)
+
+        adapter = BioTacAdapter()
+        with pytest.raises(ValueError, match="No valid numeric rows"):
+            adapter.load(
+                csv_path,
+                interaction=InteractionMeta(type="pressing"),
+                labels=Labels(),
+            )
+
+    def test_load_no_header_drops_extra_timestamp_column(self, tmp_path):
+        """Headerless CSV with 24 cols assumes col0 is timestamp and drops it."""
+        n_rows = 5
+        n_cols = 24  # timestamp + 23 sensor channels
+        rng = np.random.RandomState(7)
+        data = rng.randn(n_rows, n_cols).astype(np.float32)
+        csv_path = tmp_path / "no_header_ts.csv"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            for row in data:
+                writer.writerow([f"{v:.4f}" for v in row])
+
+        adapter = BioTacAdapter()
+        result = adapter.load(
+            csv_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert result.raw.shape == (n_rows, 23)
+        np.testing.assert_allclose(result.raw.array, data[:, 1:], atol=1e-3)
+
+    def test_load_too_few_channels_raises(self, tmp_path):
+        """Fewer than 10 sensor channels after parse raises ValueError."""
+        # No electrode header → treated as data; 5 cols < 10
+        csv_path = tmp_path / "narrow.csv"
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([1.0, 2.0, 3.0, 4.0, 5.0])
+            writer.writerow([6.0, 7.0, 8.0, 9.0, 10.0])
+
+        adapter = BioTacAdapter()
+        with pytest.raises(ValueError, match="at least 10 sensor channels"):
+            adapter.load(
+                csv_path,
+                interaction=InteractionMeta(type="pressing"),
+                labels=Labels(),
+            )

@@ -188,3 +188,119 @@ class TestTacTipAdapter:
                 )
         finally:
             shutil.rmtree(tmp)
+
+    def test_can_load_unreadable_csv_returns_false(self, tmp_path):
+        """Binary garbage CSV cannot be decoded as text → can_load is False."""
+        csv_path = tmp_path / "broken.csv"
+        csv_path.write_bytes(b"\xff\xfe\x00\x01not-utf8")
+        adapter = TacTipAdapter()
+        assert adapter.can_load(csv_path) is False
+
+    def test_load_images_rejects_non_directory(self, tmp_path):
+        """Image mode requires a directory; a file path raises FileNotFoundError."""
+        file_path = tmp_path / "not_a_dir.png"
+        Image.fromarray(np.zeros((8, 8), dtype=np.uint8)).save(file_path)
+        adapter = TacTipAdapter()
+        with pytest.raises(FileNotFoundError, match="Not a directory"):
+            adapter.load(
+                file_path,
+                interaction=InteractionMeta(type="pressing"),
+                labels=Labels(),
+                mode="image",
+            )
+
+    def test_load_images_resizes_mixed_resolutions(self, tmp_path):
+        """Frames with different HxW are resized to the first frame's shape."""
+        Image.fromarray(np.full((20, 30), 10, dtype=np.uint8)).save(tmp_path / "a_ref.png")
+        Image.fromarray(np.full((40, 60), 200, dtype=np.uint8)).save(tmp_path / "b_big.png")
+
+        adapter = TacTipAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (2, 20, 30, 1)
+        assert data.raw.array[0].shape == (20, 30, 1)
+        # Resized frame should retain elevated intensity from the bright source
+        assert float(data.raw.array[1].mean()) > 100.0
+
+    def test_load_images_promotes_gray_to_rgb_when_ref_is_rgb(self, tmp_path):
+        """Gray follow-on frame is np.repeat'ed to 3 channels to match RGB ref."""
+        rgb = np.zeros((16, 24, 3), dtype=np.uint8)
+        rgb[:, :, 0] = 50
+        Image.fromarray(rgb).save(tmp_path / "a_rgb.png")
+        Image.fromarray(np.full((32, 48), 80, dtype=np.uint8)).save(tmp_path / "b_gray.png")
+
+        adapter = TacTipAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (2, 16, 24, 3)
+        # Gray→RGB repeat: all three channels equal after resize+repeat
+        assert np.array_equal(data.raw.array[1, :, :, 0], data.raw.array[1, :, :, 1])
+        assert np.array_equal(data.raw.array[1, :, :, 1], data.raw.array[1, :, :, 2])
+
+    def test_load_images_collapses_rgb_to_gray_when_ref_is_gray(self, tmp_path):
+        """RGB follow-on frame is mean-collapsed to 1 channel to match gray ref."""
+        Image.fromarray(np.full((16, 24), 30, dtype=np.uint8)).save(tmp_path / "a_gray.png")
+        rgb = np.zeros((32, 48, 3), dtype=np.uint8)
+        rgb[:, :, 0] = 90
+        rgb[:, :, 1] = 60
+        rgb[:, :, 2] = 30
+        Image.fromarray(rgb).save(tmp_path / "b_rgb.png")
+
+        adapter = TacTipAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (2, 16, 24, 1)
+        # Mean of (90, 60, 30) = 60 before resize; after resize should stay near that
+        assert 40.0 < float(data.raw.array[1].mean()) < 80.0
+
+    def test_load_markers_empty_csv_raises(self, tmp_path):
+        """Empty markers CSV raises ValueError mentioning Empty CSV."""
+        csv_path = tmp_path / "empty.csv"
+        csv_path.write_text("")
+        adapter = TacTipAdapter()
+        with pytest.raises(ValueError, match="Empty CSV"):
+            adapter.load(
+                csv_path,
+                interaction=InteractionMeta(type="pressing"),
+                labels=Labels(),
+                mode="markers",
+            )
+
+    def test_load_markers_skips_non_numeric_rows(self, tmp_path):
+        """Non-numeric rows are skipped; remaining floats form the array."""
+        csv_path = tmp_path / "mixed.csv"
+        # No pin header → treated as data rows; junk lines skipped
+        csv_path.write_text("1.0,2.0,3.0,4.0\nbad,row,here,x\n5.0,6.0,7.0,8.0\n")
+        adapter = TacTipAdapter()
+        data = adapter.load(
+            csv_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+            mode="markers",
+        )
+        assert data.raw.shape == (2, 4)
+        np.testing.assert_array_equal(
+            data.raw.array, np.array([[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]], dtype=np.float32)
+        )
+
+    def test_load_markers_no_numeric_rows_raises(self, tmp_path):
+        """CSV with only non-numeric content raises ValueError."""
+        csv_path = tmp_path / "junk.csv"
+        csv_path.write_text("foo,bar,baz\nabc,def,ghi\n")
+        adapter = TacTipAdapter()
+        with pytest.raises(ValueError, match="No valid numeric data"):
+            adapter.load(
+                csv_path,
+                interaction=InteractionMeta(type="pressing"),
+                labels=Labels(),
+                mode="markers",
+            )

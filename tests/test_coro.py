@@ -277,3 +277,164 @@ class TestCoroCapacitiveAdapter:
             assert data.modality == "dynamic"
         finally:
             shutil.rmtree(tmp)
+
+    def test_load_falls_back_to_first_csv_when_pattern_unmatched(self, tmp_path):
+        """When source pattern matches no filename, use the first CSV present."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        # Filename does not contain any known source pattern
+        df = pd.DataFrame(
+            {
+                "Path": ["A", "A", "B", "B"],
+                "Pressure": [1.0, 2.0, 3.0, 4.0],
+                "X": [0.0, 1.0, 0.0, 1.0],
+            }
+        )
+        df.to_csv(tmp_path / "orphan_readings.csv", index=False)
+
+        adapter = CoroCapacitiveAdapter()
+        data = adapter.load(
+            tmp_path,
+            source="flat_real",
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(material="test"),
+        )
+        # 2-9 cols → mean-collapse: 2 Path groups × 2 taxel rows each
+        assert data.raw.shape == (2, 2)
+        assert data.raw.dtype.startswith("float")
+        np.testing.assert_allclose(data.raw.array[0], [0.5, 1.5], atol=1e-5)
+
+    def test_extract_single_data_column_per_path_group(self, tmp_path):
+        """Path + one numeric column: each row is one taxel reading."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        rows = []
+        for path_name, values in [("g0", [10.0, 20.0, 30.0]), ("g1", [40.0, 50.0, 60.0])]:
+            for v in values:
+                rows.append({"Path": path_name, "Pressure": v})
+        pd.DataFrame(rows).to_csv(tmp_path / "Flat_Real_Abaqus.csv", index=False)
+
+        adapter = CoroCapacitiveAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (2, 3)
+        np.testing.assert_array_equal(
+            data.raw.array[0], np.array([10.0, 20.0, 30.0], dtype=np.float32)
+        )
+        np.testing.assert_array_equal(
+            data.raw.array[1], np.array([40.0, 50.0, 60.0], dtype=np.float32)
+        )
+
+    def test_extract_wide_frame_format_concatenates_rows(self, tmp_path):
+        """10+ data columns: each row is a full frame; Path groups concatenate."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        n_taxels = 12
+        rows = []
+        for path_name, offset in [("p0", 0.0), ("p1", 100.0)]:
+            for r in range(2):
+                row = {"Path": path_name}
+                for t in range(n_taxels):
+                    row[f"tax{t}"] = float(offset + r * 10 + t)
+                rows.append(row)
+        pd.DataFrame(rows).to_csv(tmp_path / "Flat_Real_Abaqus.csv", index=False)
+
+        adapter = CoroCapacitiveAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        # 2 groups × 2 rows each → 4 frames of 12 taxels
+        assert data.raw.shape == (4, n_taxels)
+        np.testing.assert_array_equal(data.raw.array[0], np.arange(n_taxels, dtype=np.float32))
+        np.testing.assert_array_equal(
+            data.raw.array[2], np.arange(n_taxels, dtype=np.float32) + 100.0
+        )
+
+    def test_extract_pads_uneven_path_group_lengths(self, tmp_path):
+        """1-D frames of unequal length are zero-padded to the longest group."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        rows = [
+            {"Path": "short", "Pressure": 1.0},
+            {"Path": "short", "Pressure": 2.0},
+            {"Path": "long", "Pressure": 3.0},
+            {"Path": "long", "Pressure": 4.0},
+            {"Path": "long", "Pressure": 5.0},
+        ]
+        pd.DataFrame(rows).to_csv(tmp_path / "Flat_Real_Abaqus.csv", index=False)
+
+        adapter = CoroCapacitiveAdapter()
+        data = adapter.load(
+            tmp_path,
+            interaction=InteractionMeta(type="pressing"),
+            labels=Labels(),
+        )
+        assert data.raw.shape == (2, 3)
+        # groupby(sort=True) orders Path names alphabetically: long, then short
+        np.testing.assert_array_equal(
+            data.raw.array[0], np.array([3.0, 4.0, 5.0], dtype=np.float32)
+        )
+        np.testing.assert_array_equal(
+            data.raw.array[1], np.array([1.0, 2.0, 0.0], dtype=np.float32)
+        )
+
+    def test_extract_empty_path_groups_returns_zero_frame(self):
+        """Empty DataFrame with a Path column yields a single zeroed taxel row."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        adapter = CoroCapacitiveAdapter()
+        df = pd.DataFrame(columns=["Path", "Pressure"])
+        result = adapter._extract_pressure_array(df)
+        assert result.shape == (1, _NUM_TAXELS)
+        assert result.dtype == np.float32
+        assert np.all(result == 0.0)
+
+    def test_extract_no_path_column_filters_constant_markers(self):
+        """Without Path, drop constant marker columns and keep varying taxels."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        adapter = CoroCapacitiveAdapter()
+        # frame_id is constant → marker, not taxel data
+        df = pd.DataFrame(
+            {
+                "frame_id": [0, 0, 0],
+                "t0": [1.0, 2.0, 3.0],
+                "t1": [4.0, 5.0, 6.0],
+                "note": ["a", "b", "c"],  # non-numeric → dropped
+            }
+        )
+        result = adapter._extract_pressure_array(df)
+        assert result.shape == (3, 2)
+        assert result.dtype == np.float32
+        np.testing.assert_array_equal(result[:, 0], [1.0, 2.0, 3.0])
+        np.testing.assert_array_equal(result[:, 1], [4.0, 5.0, 6.0])
+
+    def test_extract_no_path_all_constant_columns_uses_numeric_fallback(self):
+        """If every numeric column is constant, still return those columns."""
+        import pandas as pd
+
+        from haptix.sensors.coro import CoroCapacitiveAdapter
+
+        adapter = CoroCapacitiveAdapter()
+        df = pd.DataFrame({"marker": [7.0, 7.0, 7.0], "calib": [0.0, 0.0, 0.0]})
+        result = adapter._extract_pressure_array(df)
+        assert result.shape == (3, 2)
+        np.testing.assert_array_equal(result[:, 0], [7.0, 7.0, 7.0])
+        np.testing.assert_array_equal(result[:, 1], [0.0, 0.0, 0.0])
