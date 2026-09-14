@@ -18,6 +18,8 @@ Open an issue on GitHub. Include:
 - Minimal reproduction code
 - Error traceback
 
+The GitHub issue templates will prompt for exactly this information.
+
 ### Submitting PRs
 
 1. Fork the repo

@@ -1,0 +1,34 @@
+name: Feature request
+description: Suggest a new feature or improvement for haptix.
+body:
+  - type: textarea
+    id: what-to-do
+    attributes:
+      label: What would you like to do?
+      description: Describe the capability or change you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-useful
+    attributes:
+      label: Why is it useful?
+      description: Who benefits, and in what workflow?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Optional sketch of how this could work in the API or format.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional notes on other approaches you considered.
+    validations:
+      required: false

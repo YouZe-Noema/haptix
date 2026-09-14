@@ -1,0 +1,51 @@
+name: Sensor adapter request
+description: >
+  Propose a new sensor adapter under `haptix/sensors/`. Adapters are
+  auto-discovered via the `@register` decorator — see `docs/adapters.md` for
+  the authoring guide.
+body:
+  - type: input
+    id: sensor-name
+    attributes:
+      label: Sensor name & vendor
+      description: e.g. GelSight Mini, DIGIT, BioTac, or a custom array.
+      placeholder: "GelSight Mini (GelSight)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: data-format
+    attributes:
+      label: Data format
+      description: >
+        File types, columns or array layout, and sample rate (Hz) if known.
+        Mention modality if obvious (imaging / dynamic / force / multimodal).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sample-data
+    attributes:
+      label: Do you have sample data you can share?
+      options:
+        - yes — public link
+        - yes — can share privately
+        - "no"
+    validations:
+      required: true
+
+  - type: input
+    id: sample-link
+    attributes:
+      label: Link to sample data or docs
+      description: Optional URL to native files, datasheet, or format docs.
+    validations:
+      required: false
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else?
+      description: Optional context (SDK quirks, calibration, licensing).
+    validations:
+      required: false

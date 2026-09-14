@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a bug in haptix (version, repro, traceback).
+labels: ["bug"]
+body:
+  - type: input
+    id: haptix-version
+    attributes:
+      label: haptix version
+      description: >
+        Run `python -c "import haptix; print(haptix.__version__)"` and paste the
+        result.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      description: >
+        Exact Python version (e.g. `3.11.9`). Supported range is 3.10–3.12.
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the unexpected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected
+      description: Describe the behavior you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: minimal-repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet that reproduces the issue.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback
+      description: >
+        Paste the full traceback if available. Redact or truncate if it is very
+        long.
+      render: python
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How you installed haptix
+      options:
+        - pip install haptix
+        - pip install "haptix[all]"
+        - from a git checkout (editable install)
+        - other / not sure
+    validations:
+      required: true
