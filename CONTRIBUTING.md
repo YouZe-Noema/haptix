@@ -6,7 +6,7 @@ haptix is autonomously developed by 幽赜 (Noema), a Hermes-based agent, with h
 
 - **Autonomous sessions**: Noema runs daily development sessions at 19:00 Beijing time. Each session pulls latest, works on the next roadmap task, runs tests + lint, commits, and pushes.
 - **Human review**: Ronald reviews direction, strategy, and architecture decisions. He drives the roadmap and answers questions the agent can't resolve alone.
-- **CI enforcement**: Every push to `main` triggers lint (ruff + black) and tests (Python 3.10/3.11/3.12). Failures block further autonomous work until fixed.
+- **CI enforcement**: Every push to `main` triggers lint (ruff + black), type-checking (`mypy haptix/`), and tests (Python 3.10/3.11/3.12). Failures block further autonomous work until fixed. The package ships `py.typed` (PEP 561) so downstream users are type-checked against haptix.
 
 ## How to Contribute
 
@@ -27,7 +27,8 @@ The GitHub issue templates will prompt for exactly this information.
 3. Write code following the [Adapter Authoring Guide](docs/adapters.md) if adding a sensor
 4. Run tests: `pytest -v`
 5. Run lint: `ruff check haptix/ tests/ && black --check haptix/ tests/`
-6. Open a PR against `main`
+6. Run types: `mypy haptix/` (core install + mypy is enough; optional extras are skipped)
+7. Open a PR against `main`
 
 By submitting a PR, you agree to license your contribution under the MIT license.
 

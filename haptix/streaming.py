@@ -44,6 +44,7 @@ import json
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -100,9 +101,9 @@ class HaptArchive:
         self._format: str = "dir"  # "dir" | "zarr" | "zip"
         self._raw: np.ndarray | None = None  # full array (zip mode only)
         self._memmap: np.ndarray | None = None  # dir mode mmap
-        self._zarr_root = None  # zarr mode group
-        self._zarr_raw = None  # zarr mode raw array handle
-        self._zarr_unified = None  # zarr mode unified handle (optional)
+        self._zarr_root: Any = None  # zarr mode group
+        self._zarr_raw: Any = None  # zarr mode raw array handle
+        self._zarr_unified: Any = None  # zarr mode unified handle (optional)
         self._zip_file: zipfile.ZipFile | None = None
         self._closed = False
         self._manifest: dict = {}

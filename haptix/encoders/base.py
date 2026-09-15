@@ -21,7 +21,7 @@ Conventions (docs/encoder-registry.md §3.1)
 """
 
 from pathlib import Path
-from typing import ClassVar, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
@@ -133,7 +133,7 @@ def _encode_imaging(arr: np.ndarray, embedding_dim: int) -> np.ndarray:
         else:
             frame = frame[..., 0]
         frame_u8 = np.clip(frame, 0, 255).astype(np.uint8)
-        img = Image.fromarray(frame_u8).resize((spatial, spatial), Image.LANCZOS)
+        img = Image.fromarray(frame_u8).resize((spatial, spatial), Image.Resampling.LANCZOS)
         out[t] = np.array(img, dtype=np.float32).reshape(-1) / 255.0
 
     return _pad_to_dim(out, embedding_dim)
@@ -549,7 +549,8 @@ class SurrogateEncoder:
     learned ones.
     """
 
-    trained: ClassVar[bool] = False
+    # Plain class attribute (not ClassVar): matches SensorEncoder protocol.
+    trained: bool = False
 
     def __init__(self, sensor_type: str, embedding_dim: int, modality: str = "dynamic"):
         self.sensor_type = sensor_type
@@ -564,7 +565,7 @@ class SurrogateEncoder:
             return _encode_imaging(arr, self.embedding_dim)
         return _encode_dynamic(arr, self.embedding_dim)
 
-    def fit(self, records: list[HaptData], label_key: str = "material") -> "SurrogateEncoder":
+    def fit(self, records: list[HaptData], label_key: str = "material") -> SensorEncoder:
         """Not supported: the surrogate is a placeholder, not a trainable encoder.
 
         Raises
@@ -590,7 +591,7 @@ class SurrogateEncoder:
         )
 
     @classmethod
-    def load(cls, path: Path) -> "SurrogateEncoder":
+    def load(cls, path: Path) -> SensorEncoder:
         """Load config from .npz, returning a ready-to-encode instance."""
         with np.load(path, allow_pickle=False) as z:
             if "embedding_dim" not in set(z.files):

@@ -321,15 +321,20 @@ class WindowedDataset:
         if use_unified:
             shapes = {s.unified_shape for s in self._sources}
             if len(shapes) > 1:
-                raise ValueError(f"sources have inconsistent unified shapes: {sorted(shapes)}")
+                raise ValueError(
+                    f"sources have inconsistent unified shapes: {sorted(shapes, key=str)}"
+                )
         else:
             shapes = {s.frame_shape for s in self._sources}
             if len(shapes) > 1:
-                raise ValueError(f"sources have inconsistent frame shapes: {sorted(shapes)}")
+                raise ValueError(
+                    f"sources have inconsistent frame shapes: {sorted(shapes, key=str)}"
+                )
 
     # ── Label encoding ──────────────────────────────────────────────────
 
     def _build_label_encoding(self) -> None:
+        assert self._label is not None
         values = [s.label_value(self._label) for s in self._sources]
         has_str = any(isinstance(v, str) for v in values)
         has_num = any(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values)

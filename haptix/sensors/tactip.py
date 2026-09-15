@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
+from haptix.core import HaptData, InteractionMeta, Labels, Modality, RawData, SensorMeta
 from haptix.sensors import register
 
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
@@ -99,7 +99,7 @@ class TacTipAdapter:
 
         if mode == "markers":
             array = self._load_markers_csv(path)
-            data_modality = "dynamic"
+            data_modality: Modality = "dynamic"
         else:
             array = self._load_images(path)
             data_modality = "imaging"
@@ -138,7 +138,7 @@ class TacTipAdapter:
     @staticmethod
     def _find_images(path: Path) -> list[Path]:
         """Find all image files in a directory, sorted by name."""
-        images = []
+        images: list[Path] = []
         for ext in _IMAGE_EXTENSIONS:
             images.extend(path.glob(f"*{ext}"))
             images.extend(path.glob(f"*{ext.upper()}"))

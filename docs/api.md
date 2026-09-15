@@ -1,7 +1,8 @@
 # haptix API Reference
 
 > Complete reference for all public APIs. Private modules and underscore-prefixed
-> items are internal — not part of the public contract.
+> items are internal — not part of the public contract. The package is PEP 561
+> typed and ships `py.typed` so downstream type checkers can verify against haptix.
 
 ---
 

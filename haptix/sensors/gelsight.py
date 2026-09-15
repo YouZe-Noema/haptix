@@ -81,7 +81,7 @@ class GelSightAdapter:
 
     def _find_images(self, path: Path) -> list[Path]:
         """Return sorted list of supported image files in directory."""
-        images = []
+        images: list[Path] = []
         for ext in _IMAGE_EXTENSIONS:
             images.extend(path.glob(f"*{ext}"))
             images.extend(path.glob(f"*{ext.upper()}"))

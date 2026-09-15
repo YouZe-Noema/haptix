@@ -6,6 +6,8 @@ integrity verification. The catalog is a frozen dict — add new
 datasets by appending to the ``_CATALOG`` dict.
 """
 
+from typing import Any
+
 _DATASET_KEYS = {
     "name",
     "url",
@@ -48,7 +50,7 @@ _DEMO_SAMPLE_SHA256 = "6404e1f897906c94c346a0f4c138602916c85a71a22ac8789c8539423
 #   2. add an entry here with weights_url (resolve URL) + weights_sha256
 #      (``shasum -a 256 <file>``) + embedding_dim
 #   3. optionally attach an ``encoder`` block to the relevant catalog dataset(s)
-_ENCODER_WEIGHTS = {
+_ENCODER_WEIGHTS: dict[str, dict[str, Any]] = {
     "GelSight": {
         "weights_url": (
             "https://huggingface.co/YouZe-Noema/haptix-encoders/" "resolve/main/GelSight_v1.0.npz"
@@ -94,7 +96,7 @@ def get_encoder_weights(sensor_type: str) -> dict | None:
     return dict(_ENCODER_WEIGHTS[sensor_type])
 
 
-_CATALOG = {
+_CATALOG: dict[str, dict[str, Any]] = {
     "coro_tactile": {
         "name": "coro_tactile",
         "url": ("https://os5.mycloud.com/action/share/dc475405-9198-4860-85c9-aeb3d8f79a09"),

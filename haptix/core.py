@@ -7,7 +7,7 @@ It enforces the invariant that raw data is never modified.
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -36,7 +36,7 @@ class SensorMeta:
     calibration_params: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        d = {"type": self.type}
+        d: dict[str, Any] = {"type": self.type}
         if self.serial:
             d["serial"] = self.serial
         if self.calibration_date:
@@ -105,7 +105,7 @@ class Labels:
     custom_tags: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        d = {}
+        d: dict[str, Any] = {}
         if self.material:
             d["material"] = self.material
         if self.material_category:
@@ -530,7 +530,7 @@ class HaptData:
             tensors.append(y)
 
         # Build base dataset
-        ds = torch.utils.data.TensorDataset(*tensors)
+        ds: Any = torch.utils.data.TensorDataset(*tensors)
 
         # Wrap with transform support if needed
         if transform is not None or target_transform is not None:

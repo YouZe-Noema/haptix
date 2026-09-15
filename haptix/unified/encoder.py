@@ -84,7 +84,7 @@ def _resize_image_embedding(
         frame = arr[t].astype(np.uint8)
         if C == 1:
             frame = frame.squeeze(-1)
-        pil_img = Image.fromarray(frame).resize((target_dim, target_dim), Image.LANCZOS)
+        pil_img = Image.fromarray(frame).resize((target_dim, target_dim), Image.Resampling.LANCZOS)
         np_frame = np.array(pil_img, dtype=np.float32)
         if np_frame.ndim == 2:
             np_frame = np_frame[..., np.newaxis]

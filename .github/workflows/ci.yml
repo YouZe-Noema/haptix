@@ -50,6 +50,20 @@ jobs:
           ruff check haptix/ tests/
           black --check haptix/ tests/
 
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Type-check
+        run: |
+          pip install --upgrade pip
+          pip install -e . mypy
+          mypy haptix/
+
   package:
     runs-on: ubuntu-latest
     steps:
