@@ -167,12 +167,19 @@ def _has_title(at: AppTest, text: str) -> bool:
 
 
 def _image_nodes(at: AppTest) -> list:
-    """Return ``st.image`` nodes (protobuf oneof field ``imgs``).
+    """Return ``st.image`` nodes across AppTest API generations.
 
-    Streamlit 1.45's ``AppTest`` has no ``.image`` accessor; images land as
-    ``UnknownElement`` nodes whose ``type`` is ``"imgs"``. ``ElementTree.get``
-    is the stable lookup.
+    Streamlit 1.45 has no ``.image`` accessor: images land as
+    ``UnknownElement`` nodes whose protobuf oneof field is ``"imgs"``, looked
+    up with ``ElementTree.get("imgs")``. Streamlit >= 1.6x promotes them to a
+    first-class ``Image`` element reachable via ``get("image")``, while
+    ``get("imgs")`` now returns an empty list. Support both so the suite
+    passes on either generation of the ``browser`` extra.
     """
+    if hasattr(at, "image"):
+        modern = list(at.get("image"))
+        if modern:
+            return modern
     return list(at.get("imgs"))
 
 

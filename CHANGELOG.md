@@ -40,6 +40,12 @@ complete the v0.3 stack from the README.)
 
 ### Fixed
 
+- CI `types` gate: pin the type-check environment to `numpy<2.5` (`numpy` ≥ 2.5
+  ships PEP 695 `type` aliases in its stubs, unparseable under the
+  `python_version = "3.10"` target) and pin `mypy==2.3.1`.
+- Streamlit browser tests: `st.image` lookup now handles both AppTest API
+  generations (`get("image")` on 1.6x, `get("imgs")` on 1.45), so the suite no
+  longer depends on which Streamlit the `browser` extra resolves to.
 - Content-addressable `file_hash` computation on directory save; documented behaviour
   across storage backends.
 - Manifest `created` / `created_by` fields write real timestamps and derive

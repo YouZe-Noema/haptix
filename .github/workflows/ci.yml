@@ -61,7 +61,14 @@ jobs:
       - name: Type-check
         run: |
           pip install --upgrade pip
-          pip install -e . mypy
+          # numpy>=2.5 ships PEP 695 ``type`` aliases in its bundled stubs
+          # (numpy/__init__.pyi), which mypy cannot parse under the
+          # python_version="3.10" target configured in pyproject.toml — the run
+          # dies with "Type statement is only supported in Python 3.12 and
+          # greater [syntax]" and exit code 2. Pin the type-check environment
+          # below that boundary; the runtime test matrix still exercises the
+          # newest numpy.
+          pip install -e . "mypy==2.3.1" "numpy<2.5"
           mypy haptix/
 
   package:
