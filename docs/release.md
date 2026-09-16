@@ -12,11 +12,11 @@ git status                  # working tree clean
 git pull
 python -m pytest -v --tb=short
 pytest tests/test_roundtrip.py -v -k roundtrip
-ruff check haptix/ tests/
-black --check haptix/ tests/
+ruff check haptix/ tests/ scripts/
+black --check haptix/ tests/ scripts/
 ```
 
-Confirm CI is green on Python 3.10 / 3.11 / 3.12
+Confirm CI is green on Python 3.10 / 3.11 / 3.12 / 3.13
 ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml) is the source of truth:
 `pytest -v --tb=short`, then the round-trip job; lint pins `ruff==0.16.0` and
 `black==24.10.0`).
@@ -44,6 +44,10 @@ Leave an empty `## [Unreleased]` heading (with no empty `###` stubs) for the nex
 cycle.
 
 ## 4. Build and verify locally
+
+The package CI job already builds the wheel and runs
+[`scripts/wheel_smoke.py`](../scripts/wheel_smoke.py) against a core-only
+install (no extras). The venv snippet below is an optional extra local check.
 
 ```bash
 rm -rf dist/ build/ *.egg-info

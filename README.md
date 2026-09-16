@@ -3,7 +3,7 @@
 > Tactile data infrastructure for the ML era — the JPEG+ImageNet for touch.
 
 [![CI](https://github.com/YouZe-Noema/haptix/actions/workflows/ci.yml/badge.svg)](https://github.com/YouZe-Noema/haptix/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/haptix/)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://pypi.org/project/haptix/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 `haptix` provides a **unified container format** (`.hapt`), a **Python SDK**, and direct **ML framework integration** (PyTorch / JAX) for tactile sensor data. It does for touch what `.jpg` + ImageNet did for vision: a standard way to store, share, and feed tactile data into learning pipelines.

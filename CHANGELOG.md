@@ -37,6 +37,12 @@ complete the v0.3 stack from the README.)
 
 - Packaging metadata completed for PyPI; `haptix[all]` now includes the browser extra.
 - Lint tooling pinned (`ruff==0.16.0`, `black==24.10.0`) to match CI.
+- CI hardened: the test matrix now includes Python 3.13, the lint job also covers
+  `scripts/`, and the `package` job now smoke-tests the built wheel
+  (`scripts/wheel_smoke.py`) by installing it into a clean venv with no extras and
+  verifying the version, the PEP 561 `py.typed` marker, every `haptix.__all__` export,
+  the `haptix-browser` console-script registration, and a save/load round-trip —
+  `twine check` alone never installed the wheel, so a broken artifact could ship.
 
 ### Fixed
 

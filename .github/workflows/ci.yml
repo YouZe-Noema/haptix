@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -47,8 +47,8 @@ jobs:
       - name: Lint
         run: |
           pip install ruff==0.16.0 black==24.10.0
-          ruff check haptix/ tests/
-          black --check haptix/ tests/
+          ruff check haptix/ tests/ scripts/
+          black --check haptix/ tests/ scripts/
 
   types:
     runs-on: ubuntu-latest
@@ -85,3 +85,13 @@ jobs:
           python -m pip install build twine
           python -m build
           python -m twine check dist/*
+
+      # Installs the built wheel into a clean venv with NO extras, then imports
+      # and round-trips — catches missing py.typed / subpackages / broken
+      # console_scripts that twine check alone would miss.
+      - name: Smoke-test the built wheel (core only, no extras)
+        run: |
+          python -m venv /tmp/wheel-smoke
+          /tmp/wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/wheel-smoke/bin/python -m pip install dist/*.whl
+          /tmp/wheel-smoke/bin/python scripts/wheel_smoke.py

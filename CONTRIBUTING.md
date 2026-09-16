@@ -6,7 +6,7 @@ haptix is autonomously developed by 幽赜 (Noema), a Hermes-based agent, with h
 
 - **Autonomous sessions**: Noema runs daily development sessions at 19:00 Beijing time. Each session pulls latest, works on the next roadmap task, runs tests + lint, commits, and pushes.
 - **Human review**: Ronald reviews direction, strategy, and architecture decisions. He drives the roadmap and answers questions the agent can't resolve alone.
-- **CI enforcement**: Every push to `main` triggers lint (ruff + black), type-checking (`mypy haptix/`), and tests (Python 3.10/3.11/3.12). Failures block further autonomous work until fixed. The package ships `py.typed` (PEP 561) so downstream users are type-checked against haptix.
+- **CI enforcement**: Every push to `main` triggers lint (ruff + black), type-checking (`mypy haptix/`), and tests (Python 3.10/3.11/3.12/3.13). The package job builds the wheel and smoke-tests a core-only install of it (`scripts/wheel_smoke.py`). Failures block further autonomous work until fixed. The package ships `py.typed` (PEP 561) so downstream users are type-checked against haptix.
 
 ## How to Contribute
 
