@@ -285,3 +285,216 @@ class TestDynamicFormat:
             assert len(wins) == 14
             assert wins[0].raw.shape == (128, 29)
             assert np.array_equal(wins[0].raw.array, arr[:128])
+
+
+# ---------------------------------------------------------------------------
+# Error / edge paths (hardening)
+# ---------------------------------------------------------------------------
+
+
+def _minimal_haptdata(n_frames: int = 20, with_unified: bool = False) -> HaptData:
+    from haptix.core import UnifiedData
+
+    arr = np.random.RandomState(2).randn(n_frames, 8).astype(np.float32)
+    unified = None
+    if with_unified:
+        u = np.random.RandomState(3).randn(n_frames, 4).astype(np.float32)
+        unified = UnifiedData(
+            array=u,
+            method="TestEncoder",
+            source_modality="dynamic",
+            target_modality="latent",
+            is_lossy=False,
+            checksum=RawData.compute_checksum(u),
+        )
+    return HaptData(
+        raw=RawData(
+            array=arr, checksum=RawData.compute_checksum(arr), dtype="float32", shape=arr.shape
+        ),
+        sensor=SensorMeta(type="CoroCapacitive"),
+        modality="dynamic",
+        sampling_rate_hz=10.0,
+        interaction=InteractionMeta(type="pressing"),
+        labels=Labels(material="foam"),
+        unified=unified,
+    )
+
+
+def _zip_with_members(path, members: dict):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, payload in members.items():
+            zf.writestr(name, payload)
+    return path
+
+
+class TestOpenZipErrors:
+    def test_invalid_zip_raises_hapt_format_error(self, tmp_path):
+        p = tmp_path / "bad.hapt.zip"
+        p.write_bytes(b"not-a-zip")
+        with pytest.raises(HaptFormatError, match="Not a valid .hapt.zip archive"):
+            open_archive(p)
+
+    @pytest.mark.parametrize(
+        "missing,match",
+        [
+            ("manifest.json", "Missing manifest.json"),
+            ("raw/data.npy", "Missing raw/data.npy"),
+            ("labels.json", "Missing labels.json"),
+        ],
+    )
+    def test_zip_missing_required_member(self, tmp_path, missing, match):
+        import io
+        import json
+
+        arr = np.zeros((4, 2), dtype=np.float32)
+        buf = io.BytesIO()
+        np.save(buf, arr)
+        members = {
+            "manifest.json": json.dumps(
+                {
+                    "sensor": {"type": "t"},
+                    "modality": "dynamic",
+                    "sampling": {"rate_hz": 1.0},
+                    "interaction": {"type": "pressing"},
+                }
+            ).encode(),
+            "raw/data.npy": buf.getvalue(),
+            "labels.json": b"{}",
+        }
+        del members[missing]
+        p = _zip_with_members(tmp_path / "miss.hapt.zip", members)
+        with pytest.raises(HaptFormatError, match=match):
+            open_archive(p)
+
+
+class TestOpenZarrErrors:
+    def test_empty_zip_not_a_valid_hapt_path(self, tmp_path):
+        import zipfile
+
+        p = tmp_path / "empty.hapt.zarr"
+        with zipfile.ZipFile(p, "w"):
+            pass
+        with pytest.raises(FileNotFoundError, match="Not a valid .hapt path"):
+            open_archive(p)
+
+    def test_corrupt_zarr_valueerror_branch(self, tmp_path):
+        """Invalid `.zgroup` JSON trips the ValueError → HaptFormatError path."""
+        import zipfile
+
+        p = tmp_path / "badfmt.hapt.zarr"
+        with zipfile.ZipFile(p, "w") as zf:
+            zf.writestr(".zgroup", "not-json")
+            zf.writestr(".zattrs", "{}")
+        with pytest.raises(HaptFormatError, match="Not a valid .hapt.zarr archive"):
+            open_archive(p)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Bug in haptix/streaming.py:_open_zarr: BadZipFile is caught but "
+            "store.close() then raises AttributeError because ZipStore._zf was "
+            "never assigned (zarr 3 ZipStore). Should raise HaptFormatError."
+        ),
+    )
+    def test_corrupt_zarr_badzipfile_raises_hapt_format_error(self, tmp_path):
+        p = tmp_path / "garbage.hapt.zarr"
+        p.write_bytes(b"PK\x03\x04" + b"\x00" * 20)  # fake local-file header
+        with pytest.raises(HaptFormatError, match="Not a valid .hapt.zarr archive"):
+            open_archive(p)
+
+    def test_zarr_missing_raw_data(self, tmp_path):
+        from haptix.io import _ensure_zarr, _zarr_group
+
+        zarr, _ = _ensure_zarr()
+        p = tmp_path / "noraw.hapt.zarr"
+        store = zarr.storage.ZipStore(str(p), mode="w")
+        root = _zarr_group(zarr, store)
+        root.attrs["manifest"] = {
+            "sensor": {"type": "t"},
+            "modality": "dynamic",
+            "sampling": {"rate_hz": 1.0},
+            "interaction": {"type": "pressing"},
+        }
+        root.attrs["labels"] = {}
+        store.close()
+        with pytest.raises(HaptFormatError, match="Missing raw/data"):
+            open_archive(p)
+
+    def test_zarr_missing_manifest_labels_attrs(self, tmp_path):
+        from haptix.io import _ensure_zarr, _zarr_create_array, _zarr_group
+
+        zarr, _ = _ensure_zarr()
+        p = tmp_path / "noattrs.hapt.zarr"
+        store = zarr.storage.ZipStore(str(p), mode="w")
+        root = _zarr_group(zarr, store)
+        arr = np.zeros((2, 3), dtype=np.float32)
+        zarr_arr = _zarr_create_array(root, "raw/data", arr.shape, arr.dtype, arr.shape, None)
+        zarr_arr[:] = arr
+        store.close()
+        with pytest.raises(HaptFormatError, match="Missing manifest/labels"):
+            open_archive(p)
+
+
+class TestZarrUnifiedMetadata:
+    def test_unified_transform_attrs(self, tmp_path):
+        data = _minimal_haptdata(n_frames=12, with_unified=True)
+        p = save(data, tmp_path / "u.hapt.zarr")
+        with open_archive(p) as arc:
+            assert arc.unified_shape == (12, 4)
+            assert arc.unified_method == "TestEncoder"
+            # source/target/is_lossy live on the archive private fields and
+            # surface via UnifiedData on window slices.
+            assert arc._unified_source == "dynamic"
+            assert arc._unified_target == "latent"
+            assert arc._unified_is_lossy is False
+            win = arc.window(0, 4)
+            assert win.unified is not None
+            assert win.unified.method == "TestEncoder"
+            assert win.unified.source_modality == "dynamic"
+            assert win.unified.target_modality == "latent"
+            assert win.unified.is_lossy is False
+
+
+class TestWindowCountEdgeCases:
+    def test_window_count_stop_le_start_returns_zero(self, tmp_path):
+        p = save(_minimal_haptdata(), tmp_path / "w.hapt")
+        with open_archive(p) as arc:
+            assert arc.window_count(window_size=4, start=10, stop=10) == 0
+            assert arc.window_count(window_size=4, start=15, stop=5) == 0
+
+    def test_window_count_invalid_args(self, tmp_path):
+        p = save(_minimal_haptdata(), tmp_path / "w.hapt")
+        with open_archive(p) as arc:
+            with pytest.raises(ValueError, match="window_size must be >= 1"):
+                arc.window_count(window_size=0)
+            with pytest.raises(ValueError, match="stride must be >= 1"):
+                arc.window_count(window_size=4, stride=0)
+
+
+class TestFrameIndexClamp:
+    def test_timestamps_clamp_low_and_high(self, tmp_path):
+        data = _make_long_data(n_frames=30)
+        p = save(data, tmp_path / "ts.hapt")
+        with open_archive(p) as arc:
+            assert arc.frame_index_at(-100.0) == 0
+            assert arc.frame_index_at(1e9) == 29
+
+    def test_equal_spacing_clamp_low_and_high(self, tmp_path):
+        p = save(_minimal_haptdata(n_frames=60), tmp_path / "eq.hapt")
+        with open_archive(p) as arc:
+            assert arc.timestamps_s is None
+            assert arc.frame_index_at(-5.0) == 0
+            assert arc.frame_index_at(1e6) == 59
+
+
+class TestHaptArchiveRepr:
+    def test_repr_contains_path_modality_shape(self, tmp_path):
+        p = save(_minimal_haptdata(n_frames=8), tmp_path / "repr.hapt")
+        with open_archive(p) as arc:
+            text = repr(arc)
+            assert str(p) in text
+            assert "dynamic" in text
+            assert "shape=(8, 8)" in text
+            assert text.startswith("HaptArchive(")

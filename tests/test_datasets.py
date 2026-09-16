@@ -293,6 +293,202 @@ class TestDownload:
         mock_dl.assert_called_once()
 
 
+class TestDownloadEdgePaths:
+    """Failure / cleanup paths for ``download_dataset`` (no network)."""
+
+    def setup_method(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def teardown_method(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _patch_catalog(self, monkeypatch, info: dict):
+        """Drive downloads through a temporary catalog entry (not the shipped one)."""
+        monkeypatch.setattr(
+            "haptix.datasets.download.get_dataset_info",
+            lambda name: {**info, "name": name},
+        )
+
+    def test_empty_cache_dir_is_cache_miss_and_cleaned(self, monkeypatch):
+        """Pre-existing but empty dataset dir is removed and treated as a miss."""
+        cache_root = self.tmp / "cache"
+        empty = cache_root / "toy_ds"
+        empty.mkdir(parents=True)
+        assert empty.exists() and not any(empty.iterdir())
+
+        payload = b"fresh-bytes"
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "https://example.test/toy_ds/payload.bin",
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+            },
+        )
+
+        def fake_download(url, dest):
+            dest.write_bytes(payload)
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        result = download_dataset("toy_ds", cache_dir=cache_root, extract=False)
+        assert result == empty
+        assert (result / "payload.bin").read_bytes() == payload
+
+    def test_url_without_filename_uses_download_temp_name(self, monkeypatch):
+        """Catalog URL whose path yields no filename → ``<name>.download``."""
+        cache_root = self.tmp / "cache"
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "/",  # path yields empty filename after rstrip/split
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+            },
+        )
+
+        seen = {}
+
+        def fake_download(url, dest):
+            seen["tmp"] = dest
+            dest.write_bytes(b"named-fallback")
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        result = download_dataset("nofile_ds", cache_dir=cache_root, extract=False)
+        assert seen["tmp"].name == ".nofile_ds.nofile_ds.download"
+        assert (result / "nofile_ds.download").read_bytes() == b"named-fallback"
+
+    def test_sha256_mismatch_cleans_temp_and_empty_dir(self, monkeypatch):
+        """Pinned sha256 mismatch raises; partial temp and empty dataset dir gone."""
+        import hashlib
+
+        from haptix.io import ChecksumError
+
+        cache_root = self.tmp / "cache"
+        payload = b"wrong-payload"
+        expected = "0" * 64
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "https://example.test/chk/payload.bin",
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+                "sha256": expected,
+            },
+        )
+
+        def fake_download(url, dest):
+            dest.write_bytes(payload)
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        with pytest.raises(ChecksumError):
+            download_dataset("chk_ds", cache_dir=cache_root)
+
+        dataset_dir = cache_root / "chk_ds"
+        tmp_path = cache_root / ".chk_ds.payload.bin"
+        assert not tmp_path.exists()
+        assert not dataset_dir.exists()
+        # Sanity: the written payload really would not match.
+        assert hashlib.sha256(payload).hexdigest() != expected
+
+    def test_sha256_match_succeeds(self, monkeypatch):
+        """Pinned sha256 that matches leaves the dataset cached."""
+        import hashlib
+
+        cache_root = self.tmp / "cache"
+        payload = b"good-payload"
+        digest = hashlib.sha256(payload).hexdigest()
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "https://example.test/ok/payload.bin",
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+                "sha256": digest,
+            },
+        )
+
+        def fake_download(url, dest):
+            dest.write_bytes(payload)
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        result = download_dataset("ok_ds", cache_dir=cache_root, extract=False)
+        assert (result / "payload.bin").read_bytes() == payload
+
+    def test_extract_false_moves_without_extracting(self, monkeypatch):
+        """``extract=False`` moves the downloaded file into the dataset dir as-is."""
+        cache_root = self.tmp / "cache"
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "https://example.test/raw/data.bin",
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+            },
+        )
+
+        def fake_download(url, dest):
+            dest.write_bytes(b"no-extract")
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        result = download_dataset("raw_ds", cache_dir=cache_root, extract=False)
+        assert (result / "data.bin").read_bytes() == b"no-extract"
+        # No extraction side-effects — just the moved file.
+        assert sorted(p.name for p in result.iterdir()) == ["data.bin"]
+
+    def test_http_download_failure_leaves_no_partial_temp(self, monkeypatch):
+        """``_http_download`` raising cleans the temp file and empty dataset dir."""
+        cache_root = self.tmp / "cache"
+        self._patch_catalog(
+            monkeypatch,
+            {
+                "url": "https://example.test/fail/payload.bin",
+                "description": "edge",
+                "size_bytes": 1,
+                "sensor_type": "DIGIT",
+                "modality": "imaging",
+                "num_samples": 1,
+                "citation": "n/a",
+            },
+        )
+
+        def fake_download(url, dest):
+            dest.write_bytes(b"partial")
+            raise RuntimeError("simulated download failure")
+
+        monkeypatch.setattr("haptix.datasets.download._http_download", fake_download)
+
+        with pytest.raises(RuntimeError, match="simulated download failure"):
+            download_dataset("fail_ds", cache_dir=cache_root)
+
+        assert not (cache_root / ".fail_ds.payload.bin").exists()
+        assert not (cache_root / "fail_ds").exists()
+
+
 class TestCachePath:
     """Test the cache path configuration."""
 
