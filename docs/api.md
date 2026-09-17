@@ -82,7 +82,8 @@ modules to populate the registry.
 **Example:**
 ```python
 haptix.list_sensors()
-# ['DIGIT', 'DIGIT_v2']
+# ['BioTac_SP', 'BioTac', 'CoroCapacitive', 'DIGIT_v2', 'DIGIT',
+#  'GelSight_Wedge', 'GelSight_Mini', 'GelSight', 'TacTip']
 ```
 
 ---
@@ -436,7 +437,9 @@ Adapter for DIGIT / DIGIT v2 tactile sensor data.
 
 **Supported formats:**
 - Directory of `.png` or `.jpg` image frames
-- `.mp4` / `.avi` video (requires `opencv-python`, coming in v0.2.0)
+- `.mp4` / `.avi` video — recognised by `can_load()`, but frame decoding is
+  not implemented yet (`load()` raises `NotImplementedError`). Export frames
+  as PNG/JPEG for now.
 
 **Loading:**
 ```python
@@ -450,6 +453,141 @@ data = adapter.load(
     sensor_meta=SensorMeta(type="DIGIT_v2", serial="SN-001"),  # optional
 )
 ```
+
+---
+
+## GelSight Adapter (`haptix.sensors.gelsight`)
+
+### `class GelSightAdapter`
+
+Adapter for GelSight / GelSight Mini / GelSight Wedge tactile sensor data.
+
+**Sensor types registered:** `"GelSight"`, `"GelSight_Mini"`, `"GelSight_Wedge"`
+
+**Supported formats:**
+- Directory of `.png`, `.jpg`/`.jpeg`, or `.tif`/`.tiff` image frames
+  (grayscale or RGB; grayscale expanded to `[H, W, 1]`)
+
+**`can_load(path)`:** `True` when `path` is a directory containing at least
+one supported image file.
+
+**Loading:**
+```python
+from haptix.sensors.gelsight import GelSightAdapter
+
+adapter = GelSightAdapter()
+data = adapter.load(
+    path="path/to/frames/",
+    interaction=InteractionMeta(type="pressing", normal_force_N=2.0),
+    labels=Labels(material="aluminium"),
+    sensor_meta=None,  # defaults to SensorMeta(type="GelSight")
+)
+# modality="imaging", sampling_rate_hz=30.0
+```
+
+Full adapter contribution guide: [`docs/adapters.md`](adapters.md).
+
+---
+
+## Coro Capacitive Adapter (`haptix.sensors.coro`)
+
+### `class CoroCapacitiveAdapter`
+
+Adapter for Lab-CORO capacitive tactile pressure data (57-taxel array).
+
+**Sensor types registered:** `"CoroCapacitive"`
+
+**Supported formats:**
+- Directory containing Lab-CORO CSV files (e.g. `Flat_Real_Abaqus*.csv`)
+
+**`can_load(path)`:** `True` when `path` is a directory with at least one
+`.csv` file.
+
+**Loading:**
+```python
+from haptix.sensors.coro import CoroCapacitiveAdapter
+
+adapter = CoroCapacitiveAdapter()
+data = adapter.load(
+    path="path/to/dataset/",
+    interaction=InteractionMeta(type="pressing", normal_force_N=3.0),
+    labels=Labels(material="aluminium"),
+    sensor_meta=None,
+    source="default",          # flat_real | flat_simulation | curved_* | aliases
+    sampling_rate_hz=30.0,
+)
+# modality="dynamic", shape [T, D] (D typically 57)
+```
+
+Full adapter contribution guide: [`docs/adapters.md`](adapters.md).
+
+---
+
+## BioTac Adapter (`haptix.sensors.biotac`)
+
+### `class BioTacAdapter`
+
+Adapter for SynTouch BioTac / BioTac SP electrode + pressure/temperature CSV.
+
+**Sensor types registered:** `"BioTac"`, `"BioTac_SP"`
+
+**Supported formats:**
+- Single `.csv` / `.txt` / `.dat` file with electrode columns (`E1`…`E19` or
+  `electrode_1`…`electrode_19`) plus optional PDC/PAC/TDC/TAC
+
+**`can_load(path)`:** `True` when `path` is a file whose header matches at
+least 10 known electrode column names.
+
+**Loading:**
+```python
+from haptix.sensors.biotac import BioTacAdapter
+
+adapter = BioTacAdapter()
+data = adapter.load(
+    path="biotac_trial.csv",
+    interaction=InteractionMeta(type="sliding"),
+    labels=Labels(material="fabric"),
+    sensor_meta=None,          # defaults to SensorMeta(type="BioTac_SP")
+    sampling_rate_hz=100.0,
+)
+# modality="dynamic", shape [T, C] (C typically 23)
+```
+
+Full adapter contribution guide: [`docs/adapters.md`](adapters.md).
+
+---
+
+## TacTip Adapter (`haptix.sensors.tactip`)
+
+### `class TacTipAdapter`
+
+Adapter for Bristol TacTip optical tactile sensor data.
+
+**Sensor types registered:** `"TacTip"`
+
+**Supported formats:**
+- Directory of `.png` / `.jpg` / `.tif` image frames (imaging modality)
+- CSV of pin marker positions (`pin_*_x` / `pin_*_y`, dynamic modality)
+
+**`can_load(path)`:** `True` for an image directory, or a `.csv` whose header
+has at least 10 pin-related columns.
+
+**Loading:**
+```python
+from haptix.sensors.tactip import TacTipAdapter
+
+adapter = TacTipAdapter()
+data = adapter.load(
+    path="path/to/frames/",    # or markers.csv
+    interaction=InteractionMeta(type="pressing"),
+    labels=Labels(object_name="sphere"),
+    sensor_meta=None,
+    sampling_rate_hz=30.0,
+    mode="auto",               # "auto" | "image" | "markers"
+)
+```
+
+Full adapter contribution guide: [`docs/adapters.md`](adapters.md).
 
 ---
 
@@ -873,9 +1011,9 @@ evidence a data path works.
 Returns the best available encoder for a sensor type:
 
 - the registered encoder, if any;
-- otherwise a deterministic **surrogate fallback** (version tag
-  `unified/shared-force/v0.1/surrogate` — placeholder embeddings are never
-  mistaken for learned ones).
+- otherwise a deterministic [`SurrogateEncoder`](#class-surrogateencoder)
+  fallback (version tag `unified/shared-force/v0.1/surrogate` — placeholder
+  embeddings are never mistaken for learned ones).
 
 Never raises for unknown sensor types (falls back to the dynamic dim, 128).
 
@@ -917,6 +1055,53 @@ none can be downloaded — the registry entry is still served untrained via
 `get_encoder()`. Raises `ChecksumError` if a download fails SHA-256
 verification. Train weights with `encoder.fit(records)` + `encoder.save(path)`
 (see [`examples/train_encoders.py`](../examples/train_encoders.py)).
+
+### `encoder_cache_dir() -> Path`
+
+Default encoder-weights cache directory: `~/.haptix/cache/encoders`.
+Honors `HAPTIX_CACHE_DIR` (same env override as dataset downloads): when set,
+returns `{HAPTIX_CACHE_DIR}/encoders`.
+
+```python
+from haptix.encoders.weights_download import encoder_cache_dir
+
+encoder_cache_dir()  # Path.home() / ".haptix" / "cache" / "encoders"
+```
+
+### `fetch_trained_weights(sensor_type, *, cache_dir=None) -> Path | None`
+
+Download and SHA-256-verify published weights for *sensor_type* from the
+catalog (`get_encoder_weights`). Returns the cached `.npz` path, or
+`None` if the catalog has no published weights for that sensor. Idempotent:
+a cached copy is re-verified; a digest mismatch triggers re-download.
+Raises `ChecksumError` on verification failure.
+
+```python
+from haptix.encoders.weights_download import fetch_trained_weights
+
+path = fetch_trained_weights("GelSight")  # Path | None
+```
+
+Used internally by `load_trained(..., download=True)`.
+
+### `class SurrogateEncoder`
+
+Deterministic placeholder served by `get_encoder()` when no encoder is
+registered for a sensor type. Replicates shared-force embedding semantics so
+every call still returns a fixed-dim array, but tags
+`version = "unified/shared-force/v0.1/surrogate"` so placeholder embeddings
+are never mistaken for learned ones. `trained` is always `False`; `fit()`
+raises `NotImplementedError`.
+
+**Constructor:** `SurrogateEncoder(sensor_type, embedding_dim, modality="dynamic")`
+
+```python
+from haptix.encoders.base import SurrogateEncoder
+
+enc = SurrogateEncoder("CustomSensor", embedding_dim=128)
+assert enc.version.endswith("/surrogate")
+assert enc.trained is False
+```
 
 ### Training encoders (`fit()`)
 
@@ -961,8 +1146,13 @@ Weights trained on real data (2026-08-10, via
 - **CoroCapacitive v1.0** — real Lab-CORO CSV (786 frames): whitening
   decorrelates features (mean |off-diagonal corr| 0.180 → 0.000).
 
-Weights live in the gitignored `haptix/encoders/weights/` dir; publication to
-the Hugging Face Hub is a pending release decision (design doc §7).
+Weights live in the gitignored `haptix/encoders/weights/` dir locally, and
+are **published** on the public Hugging Face Hub repo
+[`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders)
+(`GelSight_v1.0.npz`, `CoroCapacitive_v1.0.npz`; uploaded and
+checksum-verified 2026-09-10). Digests are pinned in
+`haptix/datasets/catalog.py` (`get_encoder_weights`), so
+`load_trained()` works out of the box on a fresh install.
 
 ### `benchmark()` (contributor contract)
 

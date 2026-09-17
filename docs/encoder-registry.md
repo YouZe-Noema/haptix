@@ -7,9 +7,11 @@
 > GelSight (YCB-Sight real, 79.8% LOO) + CoroCapacitive (real CSV,
 > whitening decorrelation) via `examples/train_encoders.py`. Weights live in
 > the gitignored `haptix/encoders/weights/` dir; **HF Hub publication is
-> wired** (2026-08-13: catalog `encoder` blocks + `get_encoder_weights()` +
-> checksum-verified auto-download in `load_trained()`, see §7); the upload
-> itself is a one-command step awaiting an HF write token.
+> complete** (wiring 2026-08-13, commit 5a4d26f: catalog `encoder` blocks +
+> `get_encoder_weights()` + checksum-verified auto-download in
+> `load_trained()`; upload + anonymous-fetch verification 2026-09-10 on the
+> public repo [`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders);
+> digests pinned in `haptix/datasets/catalog.py` — see §7).
 > **Strategy:** per-sensor encoders first, community-contributed; a foundation
 > model only when sensor coverage + alignment data justify it.
 > **Companion docs:** `docs/adapters.md` (sensor adapters), `docs/api.md`.
@@ -232,8 +234,11 @@ dir; `haptix.load_trained(sensor_type)` serves them:
 | GelSight v1.0 | YCB-Sight real (6 objects × 80 frames, 24 temporal segments) | 79.8% leave-one-record-out nearest-centroid (per-fold refit) |
 | CoroCapacitive v1.0 | Lab-CORO real CSV (786 frames) | whitening decorrelation: mean \|off-diag corr\| 0.180 → 0.000 |
 
-Weights are serialized `.npz` (mean + W + benchmark report). HF Hub
-publication of these weights is a pending release decision (§7).
+Weights are serialized `.npz` (mean + W + benchmark report). Published on
+the public HF Hub repo
+[`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders)
+(upload + verification 2026-09-10); digests pinned in
+`haptix/datasets/catalog.py` via `get_encoder_weights` (§7).
 
 ---
 
@@ -310,17 +315,16 @@ starting with the first stable release. Rationale:
 - GitHub releases stay for dataset archives (as today); HF Hub is the
   weights home. No overlap, no ambiguity.
 
-**Implemented (2026-08-13) — wiring complete; upload pending an HF write
-credential.** The v1.0 weights (GelSight 528 KB, CoroCapacitive 131 KB,
-currently in the gitignored `haptix/encoders/weights/` dir) are slated for
-the HF repo [`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders)
-as `GelSight_v1.0.npz` / `CoroCapacitive_v1.0.npz` — their SHA-256 digests
-are already pinned in `haptix/datasets/catalog.py`, the single source of
-truth (`_ENCODER_WEIGHTS` + `get_encoder_weights()`), with `encoder` blocks
+**Implemented (2026-08-13, commit 5a4d26f) — wiring complete; uploaded and
+verified 2026-09-10.** The v1.0 weights (GelSight 528 KB, CoroCapacitive
+131 KB) are published on the public HF repo
+[`YouZe-Noema/haptix-encoders`](https://huggingface.co/YouZe-Noema/haptix-encoders)
+as `GelSight_v1.0.npz` / `CoroCapacitive_v1.0.npz`. Their SHA-256 digests
+are pinned in `haptix/datasets/catalog.py`, the single source of truth
+(`_ENCODER_WEIGHTS` + `get_encoder_weights()`), with `encoder` blocks
 attached to the `ycb_slide` (GelSight) and `coro_tactile` (CoroCapacitive)
-catalog entries and validated for consistency at import time. Once the files
-are uploaded to that repo (one command with an HF token), `load_trained()`
-auto-fetches on first use with no further code changes:
+catalog entries and validated for consistency at import time.
+`load_trained()` auto-fetches on first use on a fresh install:
 
 ```python
 import haptix
