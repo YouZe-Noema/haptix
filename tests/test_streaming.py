@@ -390,14 +390,6 @@ class TestOpenZarrErrors:
         with pytest.raises(HaptFormatError, match="Not a valid .hapt.zarr archive"):
             open_archive(p)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Bug in haptix/streaming.py:_open_zarr: BadZipFile is caught but "
-            "store.close() then raises AttributeError because ZipStore._zf was "
-            "never assigned (zarr 3 ZipStore). Should raise HaptFormatError."
-        ),
-    )
     def test_corrupt_zarr_badzipfile_raises_hapt_format_error(self, tmp_path):
         p = tmp_path / "garbage.hapt.zarr"
         p.write_bytes(b"PK\x03\x04" + b"\x00" * 20)  # fake local-file header

@@ -43,6 +43,7 @@ import io
 import json
 import zipfile
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,17 @@ from haptix.io import ChecksumError, HaptFormatError
 
 # Memory-bounded verification / windowing chunk (elements per pass).
 _VERIFY_CHUNK = 1 << 22  # 4 Mi elements
+
+
+def _safe_close(store: Any) -> None:
+    """Close a zarr store, ignoring failures from a half-constructed ZipStore.
+
+    zarr 3.x ZipStore opens the underlying zip lazily: a BadZipFile during the
+    first access can leave ``_zf`` unset, so ``store.close()`` itself raises
+    AttributeError and would mask the real open error if not suppressed.
+    """
+    with suppress(Exception):
+        store.close()
 
 
 def _sha256_chunked(arr: np.ndarray, chunk: int = _VERIFY_CHUNK) -> str:
@@ -246,10 +258,10 @@ class HaptArchive:
         try:
             root = zarr.open_group(store=store, mode="r")
         except (zarr.errors.GroupNotFoundError, FileNotFoundError):
-            store.close()
+            _safe_close(store)
             raise FileNotFoundError(f"Not a valid .hapt path: {p}") from None
         except (zipfile.BadZipFile, ValueError, KeyError):
-            store.close()
+            _safe_close(store)
             raise HaptFormatError(f"Not a valid .hapt.zarr archive: {p}") from None
         self._zarr_root = root
         if "raw/data" not in root:
@@ -555,12 +567,9 @@ class HaptArchive:
             self._zip_file.close()
             self._zip_file = None
         if self._zarr_root is not None:
-            from contextlib import suppress
-
             store = getattr(self._zarr_root, "store", None)
-            with suppress(Exception):  # best-effort cleanup on close
-                if store is not None:
-                    store.close()
+            if store is not None:
+                _safe_close(store)  # best-effort cleanup on close
             self._zarr_root = None
             self._zarr_raw = None
             self._zarr_unified = None
