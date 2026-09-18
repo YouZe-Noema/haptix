@@ -30,6 +30,14 @@ jobs:
       - name: Run tests
         run: pytest -v --tb=short
 
+      - name: Re-run tests across fixed RNG seeds
+        if: matrix.python-version == '3.12'
+        run: |
+          for seed in 1 2 3; do
+            echo "--- HAPTIX_TEST_SEED=$seed ---"
+            HAPTIX_TEST_SEED=$seed pytest -q --tb=short
+          done
+
       - name: Verify round-trip guarantee
         run: |
           echo "Running round-trip tests..."

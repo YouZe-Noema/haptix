@@ -16,7 +16,8 @@ import pytest
 from PIL import Image
 
 from haptix.core import HaptData, InteractionMeta, Labels, RawData, SensorMeta
-from haptix.io import load, save
+from haptix.io import ChecksumError, load, save
+from tests._tamper import flip_pixel_in_npy
 
 
 def make_test_data() -> HaptData:
@@ -136,18 +137,49 @@ class TestRoundTrip:
         try:
             saved_path = save(original, tmp / "test.hapt")
 
-            # Corrupt the data file
+            # Corrupt the data file (XOR flip — guaranteed effective)
             data_path = saved_path / "raw" / "data.npy"
-            corrupted = np.load(data_path)
-            corrupted[0, 0, 0, 0] = 0  # flip one pixel
-            np.save(data_path, corrupted)
+            flip_pixel_in_npy(data_path)
 
-            # Load should raise
-            try:
+            with pytest.raises(ChecksumError, match="Checksum"):
                 load(saved_path)
-                assert False, "Should have raised ChecksumError"
-            except (ValueError, RuntimeError) as e:
-                assert "Checksum" in str(e) or "checksum" in str(e).lower()
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_checksum_verification_when_first_pixel_is_already_zero(self):
+        """Regression: first pixel already 0 must still fail checksum after tamper.
+
+        Guards the bug where ``corrupted[0,0,0,0] = 0`` was a no-op when that
+        pixel was already 0 ⇒ load() succeeded and the test flaked.
+        """
+        frames = np.random.randint(0, 255, (10, 240, 320, 3), dtype=np.uint8)
+        frames[0, 0, 0, 0] = 0  # force the degenerate case
+        original = HaptData(
+            raw=RawData(
+                array=frames,
+                checksum=RawData.compute_checksum(frames),
+                dtype="uint8",
+                shape=frames.shape,
+            ),
+            sensor=SensorMeta(type="DIGIT_v2"),
+            modality="imaging",
+            sampling_rate_hz=60.0,
+            interaction=InteractionMeta(
+                type="sliding",
+                speed_mm_s=50.0,
+                normal_force_N=2.0,
+            ),
+            labels=Labels(
+                material="sandpaper_grit_80",
+                task="sliding",
+            ),
+        )
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            saved_path = save(original, tmp / "test.hapt")
+            flip_pixel_in_npy(saved_path / "raw" / "data.npy")
+            with pytest.raises(ChecksumError, match="Checksum"):
+                load(saved_path)
         finally:
             shutil.rmtree(tmp)
 

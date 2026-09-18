@@ -46,6 +46,9 @@ complete the v0.3 stack from the README.)
 
 ### Fixed
 
+- Flaky `test_checksum_verification`: fixed-constant pixel overwrite was a no-op
+  when the value was already `0`; tampering now uses `tests/_tamper.py` (XOR +
+  byte-change assert) and the suite seeds RNG via `HAPTIX_TEST_SEED`.
 - CI `types` gate: pin the type-check environment to `numpy<2.5` (`numpy` ≥ 2.5
   ships PEP 695 `type` aliases in its stubs, unparseable under the
   `python_version = "3.10"` target) and pin `mypy==2.3.1`.

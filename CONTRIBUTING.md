@@ -32,6 +32,15 @@ The GitHub issue templates will prompt for exactly this information.
 
 By submitting a PR, you agree to license your contribution under the MIT license.
 
+### Testing
+
+- **`HAPTIX_TEST_SEED`** (default `0`): seeds `random` and `numpy.random` via
+  `tests/conftest.py` so the suite is byte-for-byte reproducible. Use
+  `HAPTIX_TEST_SEED=<n> pytest -q` to exercise a different data draw.
+- **Verifiable tampering**: if you corrupt a file to assert a checksum error,
+  prove the corruption changed the bytes (`tests/_tamper.py`) — a fixed-constant
+  write can be a silent no-op and turn the test into a flake.
+
 ### Changelog
 
 User-visible changes should add an entry under `## [Unreleased]` in
